@@ -1,0 +1,6 @@
+pyTelegramBotAPI
+ydb
+python-json-logger
+yandexcloud
+protobuf
+yookassa
