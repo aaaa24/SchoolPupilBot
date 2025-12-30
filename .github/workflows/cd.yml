@@ -17,34 +17,6 @@ env:
   STAGING_FUNCTION_NAME: "bot-staging"
   PROD_FUNCTION_NAME: "bot-prod"
 
-x-deploy-steps: &deploy-steps
-  - uses: actions/checkout@v4
-  - name: Get IAM token
-    uses: docker://ghcr.io/yc-actions/yc-iam-token-fed:1.0.0
-    with:
-      yc-sa-id: ${{ secrets.YC_SA_ID }}
-
-  - name: Deploy function (create version)
-    uses: yc-actions/yc-sls-function@v1
-    with:
-      folder-id: ${{ secrets.YC_FOLDER_ID }}
-      name: ${{ env.FUNCTION_NAME }}
-      source: ${{ env.SRC_PATH }}
-      runtime: ${{ env.RUNTIME }}
-      entrypoint: ${{ env.ENTRYPOINT }}
-      service-account-id: ${{ secrets.FUNCTION_SA_ID }}
-      environment: |
-        YDB_DATABASE=${{ secrets.YDB_DATABASE }}
-        CHANNEL_PERVYE=${{ secrets.CHANNEL_PERVYE }}
-        SUPERADMIN=${{ secrets.SUPERADMIN }}
-        TECHNO_INFO=${{ secrets.TECHNO_INFO }}
-        LOG_GROUP_ID=${{ secrets.LOG_GROUP_ID }}
-        VK_APP_ID=${{ secrets.VK_APP_ID }}
-        YOOKASSA_ACCOUNT_ID=${{ secrets.YOOKASSA_ACCOUNT_ID }}
-      secrets: |
-        BOT_TOKEN=${{ secrets.LOCKBOX_ID }}/latest/BOT_TOKEN
-        YOOKASSA_SECRET_KEY=${{ secrets.LOCKBOX_ID }}/latest/YOOKASSA_SECRET_KEY
-
 jobs:
   deploy-preprod:
     if: github.ref == 'refs/heads/develop'
@@ -52,8 +24,33 @@ jobs:
     environment: preprod
     env:
       FUNCTION_NAME: ${{ env.STAGING_FUNCTION_NAME }}
-    steps:
-      <<: *deploy-steps
+    steps: &deploy-steps
+      - uses: actions/checkout@v4
+      - name: Get IAM token
+        uses: docker://ghcr.io/yc-actions/yc-iam-token-fed:1.0.0
+        with:
+          yc-sa-id: ${{ secrets.YC_SA_ID }}
+
+      - name: Deploy function (create version)
+        uses: yc-actions/yc-sls-function@v1
+        with:
+          folder-id: ${{ secrets.YC_FOLDER_ID }}
+          name: ${{ env.FUNCTION_NAME }}
+          source: ${{ env.SRC_PATH }}
+          runtime: ${{ env.RUNTIME }}
+          entrypoint: ${{ env.ENTRYPOINT }}
+          service-account-id: ${{ secrets.FUNCTION_SA_ID }}
+          environment: |
+            YDB_DATABASE=${{ secrets.YDB_DATABASE }}
+            CHANNEL_PERVYE=${{ secrets.CHANNEL_PERVYE }}
+            SUPERADMIN=${{ secrets.SUPERADMIN }}
+            TECHNO_INFO=${{ secrets.TECHNO_INFO }}
+            LOG_GROUP_ID=${{ secrets.LOG_GROUP_ID }}
+            VK_APP_ID=${{ secrets.VK_APP_ID }}
+            YOOKASSA_ACCOUNT_ID=${{ secrets.YOOKASSA_ACCOUNT_ID }}
+          secrets: |
+            BOT_TOKEN=${{ secrets.LOCKBOX_ID }}/latest/BOT_TOKEN
+            YOOKASSA_SECRET_KEY=${{ secrets.LOCKBOX_ID }}/latest/YOOKASSA_SECRET_KEY
 
   deploy-prod:
     if: github.ref == 'refs/heads/main'
@@ -61,5 +58,4 @@ jobs:
     environment: prod
     env:
       FUNCTION_NAME: ${{ env.PROD_FUNCTION_NAME }}
-    steps:
-      <<: *deploy-steps
+    steps: *deploy-steps
