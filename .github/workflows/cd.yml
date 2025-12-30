@@ -30,7 +30,7 @@ jobs:
           yc-sa-id: ${{ secrets.YC_SA_ID }}
 
       - name: Deploy function (create version)
-        uses: yc-actions/yc-sls-function@v1
+        uses: yc-actions/yc-sls-function@v4.1.0
         with:
           folder-id: ${{ secrets.YC_FOLDER_ID }}
           name: ${{ env.FUNCTION_NAME }}
