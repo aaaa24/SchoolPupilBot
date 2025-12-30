@@ -25,6 +25,7 @@ jobs:
     steps: &deploy-steps
       - uses: actions/checkout@v4
       - name: Get IAM token
+        id: get-iam-token
         uses: docker://ghcr.io/yc-actions/yc-iam-token-fed:1.0.0
         with:
           yc-sa-id: ${{ secrets.YC_SA_ID }}
@@ -33,11 +34,12 @@ jobs:
         uses: yc-actions/yc-sls-function@v4.1.0
         with:
           folder-id: ${{ secrets.YC_FOLDER_ID }}
-          name: ${{ env.FUNCTION_NAME }}
-          source: ${{ env.SRC_PATH }}
+          function-name: ${{ env.FUNCTION_NAME }}
+          source-root: ${{ env.SRC_PATH }}
           runtime: ${{ env.RUNTIME }}
           entrypoint: ${{ env.ENTRYPOINT }}
-          service-account-id: ${{ secrets.FUNCTION_SA_ID }}
+          service-account: ${{ secrets.FUNCTION_SA_ID }}
+          yc-iam-token: ${{ steps.get-iam-token.outputs.token }}
           environment: |
             YDB_DATABASE=${{ secrets.YDB_DATABASE }}
             CHANNEL_PERVYE=${{ secrets.CHANNEL_PERVYE }}
