@@ -14,8 +14,6 @@ env:
   SRC_PATH: "./src"
   ENTRYPOINT: "main.handler"
   RUNTIME: "python312"
-  STAGING_FUNCTION_NAME: "bot-staging"
-  PROD_FUNCTION_NAME: "bot-prod"
 
 jobs:
   deploy-preprod:
@@ -23,7 +21,7 @@ jobs:
     runs-on: ubuntu-latest
     environment: preprod
     env:
-      FUNCTION_NAME: ${{ env.STAGING_FUNCTION_NAME }}
+      FUNCTION_NAME: bot-staging
     steps: &deploy-steps
       - uses: actions/checkout@v4
       - name: Get IAM token
@@ -57,5 +55,5 @@ jobs:
     runs-on: ubuntu-latest
     environment: prod
     env:
-      FUNCTION_NAME: ${{ env.PROD_FUNCTION_NAME }}
+      FUNCTION_NAME: bot-prod
     steps: *deploy-steps
