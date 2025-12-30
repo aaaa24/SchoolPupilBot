@@ -40,6 +40,8 @@ jobs:
           entrypoint: ${{ env.ENTRYPOINT }}
           service-account: ${{ secrets.FUNCTION_SA_ID }}
           yc-iam-token: ${{ steps.get-iam-token.outputs.token }}
+          memory: 256
+          execution-timeout: 600
           environment: |
             YDB_DATABASE=${{ secrets.YDB_DATABASE }}
             CHANNEL_PERVYE=${{ secrets.CHANNEL_PERVYE }}
