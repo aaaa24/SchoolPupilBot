@@ -12,7 +12,8 @@ permissions:
 
 env:
   SRC_PATH: "./src"
-  ENTRYPOINT: "index.handler"
+  BOT_ENTRYPOINT: "index.handler"
+  NEWSLETTER_ENTRYPOINT: "scheduler_newsletter.handler"
   RUNTIME: "python312"
 
 jobs:
@@ -21,7 +22,8 @@ jobs:
     runs-on: ubuntu-latest
     environment: preprod
     env:
-      FUNCTION_NAME: bot-preprod
+      BOT_FUNCTION_NAME: bot-preprod
+      NEWSLETTER_FUNCTION_NAME: newsletter-preprod
     steps: &deploy-steps
       - uses: actions/checkout@v4
       - name: Get IAM token
@@ -30,14 +32,14 @@ jobs:
         with:
           yc-sa-id: ${{ secrets.YC_SA_ID }}
 
-      - name: Deploy function (create version)
+      - name: Deploy function (bot)
         uses: yc-actions/yc-sls-function@v4.1.0
         with:
           folder-id: ${{ secrets.YC_FOLDER_ID }}
-          function-name: ${{ env.FUNCTION_NAME }}
+          function-name: ${{ env.BOT_FUNCTION_NAME }}
           source-root: ${{ env.SRC_PATH }}
           runtime: ${{ env.RUNTIME }}
-          entrypoint: ${{ env.ENTRYPOINT }}
+          entrypoint: ${{ env.BOT_ENTRYPOINT }}
           service-account: ${{ secrets.FUNCTION_SA_ID }}
           yc-iam-token: ${{ steps.get-iam-token.outputs.token }}
           memory: 256Mb
@@ -56,10 +58,33 @@ jobs:
             BOT_TOKEN=${{ secrets.LOCKBOX_ID }}/latest/BOT_TOKEN
             YOOKASSA_SECRET_KEY=${{ secrets.LOCKBOX_ID }}/latest/YOOKASSA_SECRET_KEY
 
+      - name: Deploy function (newsletter)
+        uses: yc-actions/yc-sls-function@v4.1.0
+        with:
+          folder-id: ${{ secrets.YC_FOLDER_ID }}
+          function-name: ${{ env.NEWSLETTER_FUNCTION_NAME }}
+          source-root: ${{ env.SRC_PATH }}
+          runtime: ${{ env.RUNTIME }}
+          entrypoint: ${{ env.NEWSLETTER_ENTRYPOINT }}
+          service-account: ${{ secrets.FUNCTION_SA_ID }}
+          yc-iam-token: ${{ steps.get-iam-token.outputs.token }}
+          memory: 256Mb
+          execution-timeout: 600
+          logs-group-id: ${{ secrets.LOG_GROUP_ID }}
+          environment: |
+            YDB_DATABASE=${{ secrets.YDB_DATABASE }}
+            YDB_ENDPOINT=${{ secrets.YDB_ENDPOINT }}
+            CHANNEL_PERVYE=${{ secrets.CHANNEL_PERVYE }}
+            SUPERADMIN=${{ secrets.SUPERADMIN }}
+          secrets: |
+            BOT_TOKEN=${{ secrets.LOCKBOX_ID }}/latest/BOT_TOKEN
+            VK_ACCESS_TOKEN=${{ secrets.LOCKBOX_ID }}/latest/VK_ACCESS_TOKEN
+
   deploy-prod:
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     environment: prod
     env:
-      FUNCTION_NAME: bot-prod
+      BOT_FUNCTION_NAME: bot-prod
+      NEWSLETTER_FUNCTION_NAME: newsletter-prod
     steps: *deploy-steps
