@@ -12,7 +12,7 @@ permissions:
 
 env:
   SRC_PATH: "./src"
-  ENTRYPOINT: "main.handler"
+  ENTRYPOINT: "index.handler"
   RUNTIME: "python312"
 
 jobs:
@@ -42,6 +42,7 @@ jobs:
           yc-iam-token: ${{ steps.get-iam-token.outputs.token }}
           memory: 256Mb
           execution-timeout: 600
+          logs-group-id: ${{ secrets.LOG_GROUP_ID }}
           environment: |
             YDB_DATABASE=${{ secrets.YDB_DATABASE }}
             YDB_ENDPOINT=${{ secrets.YDB_ENDPOINT }}
