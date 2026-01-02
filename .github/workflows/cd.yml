@@ -1,0 +1,65 @@
+name: CD — deploy to Yandex Cloud Functions
+
+on:
+  push:
+    branches:
+      - develop
+      - main
+
+permissions:
+  contents: read
+  id-token: write
+
+env:
+  SRC_PATH: "./src"
+  ENTRYPOINT: "index.handler"
+  RUNTIME: "python312"
+
+jobs:
+  deploy-preprod:
+    if: github.ref == 'refs/heads/develop'
+    runs-on: ubuntu-latest
+    environment: preprod
+    env:
+      FUNCTION_NAME: bot-preprod
+    steps: &deploy-steps
+      - uses: actions/checkout@v4
+      - name: Get IAM token
+        id: get-iam-token
+        uses: docker://ghcr.io/yc-actions/yc-iam-token-fed:1.0.0
+        with:
+          yc-sa-id: ${{ secrets.YC_SA_ID }}
+
+      - name: Deploy function (create version)
+        uses: yc-actions/yc-sls-function@v4.1.0
+        with:
+          folder-id: ${{ secrets.YC_FOLDER_ID }}
+          function-name: ${{ env.FUNCTION_NAME }}
+          source-root: ${{ env.SRC_PATH }}
+          runtime: ${{ env.RUNTIME }}
+          entrypoint: ${{ env.ENTRYPOINT }}
+          service-account: ${{ secrets.FUNCTION_SA_ID }}
+          yc-iam-token: ${{ steps.get-iam-token.outputs.token }}
+          memory: 256Mb
+          execution-timeout: 600
+          logs-group-id: ${{ secrets.LOG_GROUP_ID }}
+          environment: |
+            YDB_DATABASE=${{ secrets.YDB_DATABASE }}
+            YDB_ENDPOINT=${{ secrets.YDB_ENDPOINT }}
+            CHANNEL_PERVYE=${{ secrets.CHANNEL_PERVYE }}
+            SUPERADMIN=${{ secrets.SUPERADMIN }}
+            TECHNO_INFO=${{ secrets.TECHNO_INFO }}
+            LOG_GROUP_ID=${{ secrets.LOG_GROUP_ID }}
+            VK_APP_ID=${{ secrets.VK_APP_ID }}
+            YOOKASSA_ACCOUNT_ID=${{ secrets.YOOKASSA_ACCOUNT_ID }}
+          secrets: |
+            BOT_TOKEN=${{ secrets.LOCKBOX_ID }}/latest/BOT_TOKEN
+            YOOKASSA_SECRET_KEY=${{ secrets.LOCKBOX_ID }}/latest/YOOKASSA_SECRET_KEY
+
+  deploy-prod:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment: prod
+    env:
+      FUNCTION_NAME: bot-prod
+    steps: *deploy-steps
