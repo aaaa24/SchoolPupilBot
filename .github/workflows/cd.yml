@@ -21,7 +21,7 @@ jobs:
     runs-on: ubuntu-latest
     environment: preprod
     env:
-      FUNCTION_NAME: bot-staging
+      FUNCTION_NAME: bot-preprod
     steps: &deploy-steps
       - uses: actions/checkout@v4
       - name: Get IAM token
