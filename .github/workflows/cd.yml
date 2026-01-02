@@ -44,6 +44,7 @@ jobs:
           execution-timeout: 600
           environment: |
             YDB_DATABASE=${{ secrets.YDB_DATABASE }}
+            YDB_ENDPOINT=${{ secrets.YDB_ENDPOINT }}
             CHANNEL_PERVYE=${{ secrets.CHANNEL_PERVYE }}
             SUPERADMIN=${{ secrets.SUPERADMIN }}
             TECHNO_INFO=${{ secrets.TECHNO_INFO }}
