@@ -1,8 +1,10 @@
+import time
+
+from telebot import types, apihelper
+
+import cmd_recognition
 import var
 from var import Phrase
-from telebot import types, apihelper
-import cmd_recognition
-import time
 
 
 def get_inline_button(button):
