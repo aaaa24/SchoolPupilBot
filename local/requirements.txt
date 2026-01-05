@@ -1,0 +1,9 @@
+pyTelegramBotAPI
+ydb
+python-json-logger
+yandexcloud
+protobuf
+yookassa
+
+python-dotenv
+flask
