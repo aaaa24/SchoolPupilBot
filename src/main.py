@@ -23,9 +23,13 @@ logger.setLevel(logging.DEBUG)
 logger.debug('Создан logger', extra={'time_since_launch': time() - t0})
 
 t1 = time()
-from telebot import TeleBot, types
-import ydb
+
 import os
+
+from telebot import TeleBot
+import ydb
+
+import db
 from funcs import text_handling, callback_handling, commands, list_func, admin_commands, modules
 
 logger.debug('Завершён импорт', extra={'time_since_launch': time() - t0, 'duration': time() - t1})
@@ -33,15 +37,8 @@ logger.debug('Завершён импорт', extra={'time_since_launch': time()
 t1 = time()
 bot = TeleBot(os.getenv('BOT_TOKEN'))
 
-
-def create_driver():
-    global driver
-    driver = ydb.Driver(endpoint=os.getenv('YDB_ENDPOINT'), database=os.getenv('YDB_DATABASE'),
-                        credentials=ydb.iam.MetadataUrlCredentials())
-    driver.wait(fail_fast=True, timeout=5)
-
-
-create_driver()
+driver = db.create_driver()
+driver.wait(fail_fast=True, timeout=5)
 
 logger.debug('Созданы bot и driver', extra={'time_since_launch': time() - t0, 'duration': time() - t1})
 
