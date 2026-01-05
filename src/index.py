@@ -1,6 +1,8 @@
-import telebot
-from main import bot, logger, driver, set_connect
 from json import dumps, loads
+
+import telebot
+
+from main import bot, logger, set_connect
 
 
 def handler(event, context):
