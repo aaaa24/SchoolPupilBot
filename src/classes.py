@@ -1,8 +1,8 @@
-import ydb
 from telebot import types
-import var
-from var import Phrase
+import ydb
+
 from funcs import send_text, edit_level
+from var import Phrase
 
 
 def class_teachers(m, user, bot, session, *args, **kwargs):

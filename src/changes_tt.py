@@ -1,10 +1,12 @@
-import ydb
-from telebot import types
-import var
-import time
-from var import Phrase
 from re import search
+import time
+
+from telebot import types
+import ydb
+
 from funcs import send_text, edit_level
+import var
+from var import Phrase
 
 
 def edit_changes_tt(m, user, bot, session, *args, **kwargs):

@@ -3,11 +3,10 @@ import time
 import uuid
 
 import ydb
-from telebot import types
 from yookassa import Configuration, Payment
 
 from var import Phrase
-from funcs import send_text, edit_level, create_inline_kb
+from funcs import send_text, create_inline_kb
 
 
 def successful_payment(bot, payment, session, logger):
