@@ -569,16 +569,18 @@ short_cmds = {
 
 admin_commands = ['timetable_edit', 'stat', 'user', 'users']
 
-list_func = {0: 'auth_user', 1: 'to_menu', 2: 'timetable.call', 3: 'timetable.call', 4: 'changes_tt.call',
-             5: 'subscribe.call', 6: 'list_of_cmds', 7: 'classes.call', 8: 'teachers.call', 9: 'helper.get_help',
-             10: 'communication.ask_feedback', 11: 'info', 12: 'statistics.call', 13: 'users.about_user_cmd',
-             14: 'users.call', 15: 'teachers.tt_list_teachers', 16: 'pay.call'
-             }
+list_func = {
+    0: 'auth_user', 1: 'to_menu', 2: 'timetable.call', 3: 'timetable.call', 4: 'changes_tt.call',
+    5: 'subscribe.call', 6: 'list_of_cmds', 7: 'classes.call', 8: 'teachers.call', 9: 'helper.get_help',
+    10: 'communication.ask_feedback', 11: 'info', 12: 'statistics.call', 13: 'users.about_user_cmd',
+    14: 'users.call', 15: 'teachers.tt_list_teachers', 16: 'pay.call'
+}
 
-commands = {'start': 0, 'home': 1, 'main': 1, 'menu': 1, 'timetable_edit': 2, 'timetable': 3, 'changes_tt': 4,
-            'news': 5, 'commands': 6, 'list': 6, 'classes': 7, 'teachers': 8, 'help': 9, 'feedback': 10, 'info': 11,
-            'stat': 12, 'user': 13, 'users': 14, 'teachers_schedule': 15, 'donate': 16
-            }
+commands = {
+    'start': 0, 'home': 1, 'main': 1, 'menu': 1, 'timetable_edit': 2, 'timetable': 3, 'changes_tt': 4,
+    'news': 5, 'commands': 6, 'list': 6, 'classes': 7, 'teachers': 8, 'help': 9, 'feedback': 10, 'info': 11,
+    'stat': 12, 'user': 13, 'users': 14, 'teachers_schedule': 15, 'donate': 16
+}
 
 list_funcs_callback = {
     'menu': to_menu, 'cncl': cancel, 'inf': info, '123': help_callback,
@@ -602,29 +604,30 @@ list_funcs_callback = {
     'pay': pay_callback
 }
 
-phrases_answer = {Phrase.EDIT_TT: 'timetable.writing', Phrase.ADD_TEA: 'teachers.writing_new',
-                  Phrase.INPUT_DATE: 'changes_tt.send_date', Phrase.IT_IS_SUNDAY: 'changes_tt.send_date',
-                  Phrase.ERROR_DATE: 'changes_tt.send_date',
-                  Phrase.EDIT_CHANGES_NOT_DATE: 'changes_tt.add_changes_tt',
-                  Phrase.NEED_CAPTION: 'changes_tt.add_changes_tt',
-                  Phrase.EDIT_IT_IS_SUNDAY: 'changes_tt.add_changes_tt',
-                  Phrase.ENTER_CLASS_CABINET: 'classes.edit_cabinet',
-                  Phrase.NOT_EDIT_CLASS_CABINET: 'classes.edit_cabinet',
-                  Phrase.ENTER_COUNT_PUPILS: 'classes.edit_count', Phrase.NOT_EDIT_COUNT_PUPILS: 'classes.edit_count',
-                  Phrase.ENTER_CLASS_TEACHER: 'classes.edit_class_teacher',
-                  Phrase.NOT_EDIT_CLASS_TEACHER: 'classes.edit_class_teacher',
-                  Phrase.ASK_FEEDBACK: 'communication.accept_feedback',
-                  Phrase.ACCEPT_FEEDBACK: 'communication.accept_feedback',
-                  Phrase.ASK_ID_TO_WRITE: 'communication.ask_text_to_write',
-                  Phrase.CONFIRMATION_MESSAGE_TO_USERS: 'communication.last_user',
-                  Phrase.ANSWER_RECEIVED: 'communication.reply_to_answer',
-                  Phrase.MESSAGE_FROM_USER: 'communication.reply_to_feedback',
-                  Phrase.ANSWER_FROM_USER: 'communication.reply_to_feedback',
-                  Phrase.ASK_BTNS: 'communication.add_button',
-                  Phrase.GET_CHAT_ID_FOR_ABOUT: 'users.about_user', Phrase.CHAT_NOT_FOUND: 'users.about_user',
-                  Phrase.NOT_ID_CHAT: 'users.about_user', Phrase.NOT_ID_USER: 'communication.ask_text_to_write',
-                  Phrase.USER_NOT_FOUND: 'communication.ask_text_to_write'
-                  }
+phrases_answer = {
+    Phrase.EDIT_TT: 'timetable.writing', Phrase.ADD_TEA: 'teachers.writing_new',
+    Phrase.INPUT_DATE: 'changes_tt.send_date', Phrase.IT_IS_SUNDAY: 'changes_tt.send_date',
+    Phrase.ERROR_DATE: 'changes_tt.send_date',
+    Phrase.EDIT_CHANGES_NOT_DATE: 'changes_tt.add_changes_tt',
+    Phrase.NEED_CAPTION: 'changes_tt.add_changes_tt',
+    Phrase.EDIT_IT_IS_SUNDAY: 'changes_tt.add_changes_tt',
+    Phrase.ENTER_CLASS_CABINET: 'classes.edit_cabinet',
+    Phrase.NOT_EDIT_CLASS_CABINET: 'classes.edit_cabinet',
+    Phrase.ENTER_COUNT_PUPILS: 'classes.edit_count', Phrase.NOT_EDIT_COUNT_PUPILS: 'classes.edit_count',
+    Phrase.ENTER_CLASS_TEACHER: 'classes.edit_class_teacher',
+    Phrase.NOT_EDIT_CLASS_TEACHER: 'classes.edit_class_teacher',
+    Phrase.ASK_FEEDBACK: 'communication.accept_feedback',
+    Phrase.ACCEPT_FEEDBACK: 'communication.accept_feedback',
+    Phrase.ASK_ID_TO_WRITE: 'communication.ask_text_to_write',
+    Phrase.CONFIRMATION_MESSAGE_TO_USERS: 'communication.last_user',
+    Phrase.ANSWER_RECEIVED: 'communication.reply_to_answer',
+    Phrase.MESSAGE_FROM_USER: 'communication.reply_to_feedback',
+    Phrase.ANSWER_FROM_USER: 'communication.reply_to_feedback',
+    Phrase.ASK_BTNS: 'communication.add_button',
+    Phrase.GET_CHAT_ID_FOR_ABOUT: 'users.about_user', Phrase.CHAT_NOT_FOUND: 'users.about_user',
+    Phrase.NOT_ID_CHAT: 'users.about_user', Phrase.NOT_ID_USER: 'communication.ask_text_to_write',
+    Phrase.USER_NOT_FOUND: 'communication.ask_text_to_write'
+}
 
 level_answer = {
     'ett_{p}_{ch}_{abb}': 'timetable.writing', 'atea': 'teachers.writing_new',

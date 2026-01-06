@@ -1,7 +1,8 @@
 import ydb
 from telebot import types
+
+from funcs import send_text, edit_level
 from var import Phrase, months
-from funcs import send_text, edit_level, send_photo
 
 
 def get_user_photos(m, user, bot, session, *args, **kwargs):

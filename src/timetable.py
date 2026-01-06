@@ -1,11 +1,13 @@
-import ydb
-from telebot import types
-import var
-from re import match, search, sub
-from var import Phrase, months
-from funcs import send_text, edit_level, create_inline_kb
 import time
 from datetime import datetime, timedelta
+from re import match, search, sub
+
+import ydb
+from telebot import types
+
+import var
+from funcs import send_text, edit_level, create_inline_kb
+from var import Phrase, months
 
 
 def call_schedule(m, user, bot, session, *args, **kwargs):
@@ -217,7 +219,6 @@ def writing(m, user, bot, session, *args, **kwargs):
     for w in var.weekdays:
         if weekday in w.values():
             weekday = w['abb_name']
-            full_weekday = w['name']
             weekday_num = w['num']
             accusative = w['accusative']
             break
@@ -403,7 +404,7 @@ def weekday(m, user, bot, session, *args, **kwargs):
         settings=ydb.BaseRequestSettings().with_timeout(3).with_operation_timeout(2)
     )
 
-    if result[0].rows == []:
+    if not result[0].rows:
         text = f'Расписание для {parallel}{char} класса на {accusative} не добавлено'
     else:
         subjects = result[0].rows
@@ -485,8 +486,6 @@ def edit(m, user, bot, session, *args, **kwargs):
 
     for w in var.weekdays:
         if weekday in w.values():
-            full_weekday = w['name']
-            n_weekday = w['num']
             accusative = w['accusative']
             break
 

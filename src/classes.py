@@ -1,5 +1,5 @@
-from telebot import types
 import ydb
+from telebot import types
 
 from funcs import send_text, edit_level
 from var import Phrase
@@ -63,7 +63,6 @@ def class_teachers(m, user, bot, session, *args, **kwargs):
 
 
 def edit_class_teacher(m, user, bot, session, *args, **kwargs):
-    from re import search
     from teachers import _clean_text, get_found_teachers
     parallel, char = args
 
