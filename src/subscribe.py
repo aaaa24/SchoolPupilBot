@@ -1,9 +1,8 @@
 import ydb
 from telebot import types
-import var
-from re import search
-from var import Phrase
+
 from funcs import send_text, edit_level
+from var import Phrase
 
 
 def call(m, user, bot, session, *args, **kwargs):

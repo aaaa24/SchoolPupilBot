@@ -1,7 +1,7 @@
 from telebot import types
 
-from var import Phrase
 from funcs import send_text, edit_level
+from var import Phrase
 
 
 def last_user(m, user, bot, session, *args, **kwargs):
@@ -320,8 +320,6 @@ def another_message_to_user(m, user, bot, session, *args, **kwargs):
 
 def write_to_user(m, user, bot, session, *args, **kwargs):
     # Отправка пользователю сообщения
-    from var import dict_re
-    from re import match
 
     btns = [b[0] for b in m.message.reply_markup.keyboard[:-6]]
     user_id = m.data.split('$')[0].split('_')[1]

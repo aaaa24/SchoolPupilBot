@@ -1,6 +1,7 @@
 from telebot import types
-from var import Phrase
+
 from funcs import send_text
+from var import Phrase
 
 
 def daily_statistics(bot, context, logger, *args, **kwargs):
@@ -100,7 +101,6 @@ def get_filter_with_timestamp(text_filter, start=None, end=None):
 
 
 def get_logs(log_group_id, function_id, text_filter, since=None, until=None):
-    import os
     import yandexcloud
     from yandex.cloud.logging.v1.log_reading_service_pb2 import ReadRequest
     from yandex.cloud.logging.v1.log_reading_service_pb2 import Criteria

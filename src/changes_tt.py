@@ -1,11 +1,11 @@
-from re import search
 import time
+from re import search
 
-from telebot import types
 import ydb
+from telebot import types
 
-from funcs import send_text, edit_level
 import var
+from funcs import send_text, edit_level
 from var import Phrase
 
 
