@@ -30,7 +30,7 @@ from telebot import TeleBot
 import ydb
 
 import db
-from funcs import text_handling, callback_handling, commands, list_func, admin_commands, modules
+from router import text_handling, callback_handling, commands, list_func, admin_commands
 
 logger.debug('Завершён импорт', extra={'time_since_launch': time() - t0, 'duration': time() - t1})
 
@@ -158,6 +158,7 @@ def cmd(m):
         'command': None, 'result': None
     }
 
+    command = None
     for entity in m.entities:
         if entity.type == 'bot_command':
             command = m.text[entity.offset + 1:entity.length]
@@ -169,7 +170,7 @@ def cmd(m):
         log_info['result'] = 'only_for_admins'
     else:
         logger.debug('Запуск функции по команде', extra={'command': command})
-        modules(list_func[commands[command]], m, user, bot, session, logger=logger, context=m.context)
+        list_func[commands[command]](m, user, bot, session, logger=logger, context=m.context)
         log_info['result'] = 'command'
 
     session.closing()

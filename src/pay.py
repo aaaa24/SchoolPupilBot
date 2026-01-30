@@ -5,8 +5,8 @@ import uuid
 import ydb
 from yookassa import Configuration, Payment
 
-from funcs import send_text, create_inline_kb
-from var import Phrase
+from utils import send_text, create_inline_kb
+from constants import Phrase
 
 
 def successful_payment(bot, payment, session, logger):

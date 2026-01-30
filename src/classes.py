@@ -1,8 +1,8 @@
 import ydb
 from telebot import types
 
-from funcs import send_text, edit_level
-from var import Phrase
+from utils import send_text, edit_level
+from constants import Phrase
 
 
 def class_teachers(m, user, bot, session, *args, **kwargs):
@@ -17,7 +17,7 @@ def class_teachers(m, user, bot, session, *args, **kwargs):
         settings=ydb.BaseRequestSettings().with_timeout(3).with_operation_timeout(2)
     )
 
-    if request[0].rows == []:
+    if not request[0].rows:
         text = Phrase.NO_TEACHERS_HAVE_BEEN_ADDED_TO_THE_CLASS.format(p=parallel, ch=char)
         inline_kb = types.InlineKeyboardMarkup()
     else:

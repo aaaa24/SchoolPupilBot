@@ -1,11 +1,12 @@
+import re
+
 from telebot import types
 
-from funcs import send_text, edit_level
-from var import Phrase
+from constants import Phrase
+from utils import edit_level, find_callback_data, send_text
 
 
 def last_user(m, user, bot, session, *args, **kwargs):
-    import re
     user_id = re.match(r'(id)?(\d+)', m.text, re.IGNORECASE)
     if user_id:
         user_id = user_id.group(2)
@@ -126,7 +127,7 @@ def reask_btns_to_users(m, user, bot, session, *args, **kwargs):
 
 
 def get_attachable_buttons(message):
-    from var import attachable_buttons
+    from constants import attachable_buttons
 
     btns = []
     result_btns = []
@@ -176,11 +177,10 @@ def confirmation_message_to_users(m, user, bot, session, *args, **kwargs):
 
 
 def add_button(m, user, bot, session, *args, **kwargs):
-    from funcs import list_funcs_callback
-
     split_text = m.text.split('\n')
-    if len(split_text) < 2 or not split_text[1].split('_')[0] in list_funcs_callback:
+    if len(split_text) < 2:
         text = Phrase.NO_ADD_BTN
+        inline_kb = None
     else:
         text_btn = m.text.split('\n')[0]
         callback_data = m.text.split('\n')[1]
@@ -197,9 +197,9 @@ def add_button(m, user, bot, session, *args, **kwargs):
 
         text = Phrase.YES_ADD_BTN.format(text=f'<i>«{text_btn}»</i> с командой <i>{callback_data}</i>')
 
-    list_inline_btn = [(text_btn, callback_data + '$new'), ('❌ Скрыть сообщение', f'cncl$del{m.message_id}')]
-    inline_buttons = [types.InlineKeyboardButton(t[0], callback_data=t[1]) for t in list_inline_btn]
-    inline_kb = types.InlineKeyboardMarkup(row_width=1).add(*inline_buttons)
+        list_inline_btn = [(text_btn, callback_data + '$new'), ('❌ Скрыть сообщение', f'cncl$del{m.message_id}')]
+        inline_buttons = [types.InlineKeyboardButton(t[0], callback_data=t[1]) for t in list_inline_btn]
+        inline_kb = types.InlineKeyboardMarkup(row_width=1).add(*inline_buttons)
 
     send_text(bot, m, text, inline_kb, reply_to_message_id=m.message_id, parse_mode='HTML')
 
@@ -242,7 +242,7 @@ def choose_btn(m, user, bot, session, *args, **kwargs):
 
 
 def ask_btns(m, user, bot, session, *args, **kwargs):
-    from var import attachable_buttons
+    from constants import attachable_buttons
 
     callback_data, back = kwargs['callback_data'], kwargs['back']
     text = Phrase.ASK_BTNS
@@ -299,7 +299,6 @@ def reply_to_feedback(m, user, bot, session, *args, **kwargs):
 
 def get_info_for_reply_to_message(m):
     # Добыча информации из кнопки «Ответить»
-    from funcs import find_callback_data
     data = find_callback_data(m.reply_to_message, 'Ответить')
     split_data = data.split('$')[0].split('_')
     if len(split_data) > 3:

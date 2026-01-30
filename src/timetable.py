@@ -5,9 +5,9 @@ from re import match, search, sub
 import ydb
 from telebot import types
 
-import var
-from funcs import send_text, edit_level, create_inline_kb
-from var import Phrase, months
+import constants
+from constants import Phrase, months
+from utils import send_text, edit_level, create_inline_kb
 
 
 def call_schedule(m, user, bot, session, *args, **kwargs):
@@ -103,7 +103,7 @@ def holidays(m, user, bot, session, *args, **kwargs):
 def get_weekday_names(weekday):
     if type(weekday) is str and weekday.isdigit():
         weekday = int(weekday)
-    for w in var.weekdays:
+    for w in constants.weekdays:
         if weekday in w.values():
             return w
 
@@ -163,7 +163,7 @@ def _exst_info(old_line, num_line):
 
         if name_subj:
             foo = lambda s: sub(r'[\.\-" 0-9\(\)\\/\:]+', '', s.lower())
-            for s in var.subjects:
+            for s in constants.subjects:
                 if foo(name_subj) == foo(s['name']) or foo(name_subj) in s['var_names']:
                     name_subj = s['name']
                     break
@@ -216,7 +216,7 @@ def _exst_info(old_line, num_line):
 def writing(m, user, bot, session, *args, **kwargs):
     parallel, char, weekday = args
 
-    for w in var.weekdays:
+    for w in constants.weekdays:
         if weekday in w.values():
             weekday = w['abb_name']
             weekday_num = w['num']
@@ -343,7 +343,7 @@ def classes(m, user, bot, session, *args, **kwargs):
         settings=ydb.BaseRequestSettings().with_timeout(3).with_operation_timeout(2)
     )
 
-    weekdays = [var.weekdays[w['weekday'] - 1]['abb_name'] for w in result[0].rows]
+    weekdays = [constants.weekdays[w['weekday'] - 1]['abb_name'] for w in result[0].rows]
     str_weekdays = ''.join([str(w['weekday']) for w in result[0].rows])
     list_inline_btn = [(w, f'tt_{parallel}_{char}_{w}_{str_weekdays}') for w in weekdays]
 
@@ -390,7 +390,7 @@ def weekday(m, user, bot, session, *args, **kwargs):
     else:
         all_weekdays = ''
 
-    for w in var.weekdays:
+    for w in constants.weekdays:
         if weekday in w.values():
             full_weekday = w['name']
             n_weekday = w['num']
@@ -458,12 +458,12 @@ def add_weekday(m, user, bot, session, *args, **kwargs):
         settings=ydb.BaseRequestSettings().with_timeout(3).with_operation_timeout(2)
     )
 
-    weekdays = sorted({w['num'] for w in var.weekdays[:6]} - set([w['weekday'] for w in result[0].rows]))
-    weekdays = [var.weekdays[w - 1]['abb_name'] for w in weekdays]
+    weekdays = sorted({w['num'] for w in constants.weekdays[:6]} - set([w['weekday'] for w in result[0].rows]))
+    weekdays = [constants.weekdays[w - 1]['abb_name'] for w in weekdays]
 
     if len(weekdays) == 0:
         text = f'Для {parallel}{char} класса расписание добавлено на все дни недели. Выберите день недели, для которого хотите отредактировать расписание'
-        weekdays = [w['abb_name'] for w in var.weekdays[:6]]
+        weekdays = [w['abb_name'] for w in constants.weekdays[:6]]
     else:
         text = f'Выберите день недели, для которого хотите добавить расписание для {parallel}{char} класса'
     list_inline_btn = [(w, f'ett_{parallel}_{char}_{w}') for w in weekdays]
@@ -484,12 +484,12 @@ def edit(m, user, bot, session, *args, **kwargs):
     char = data[2]
     weekday = data[3]
 
-    for w in var.weekdays:
+    for w in constants.weekdays:
         if weekday in w.values():
             accusative = w['accusative']
             break
 
-    if match('{p}{ch} класс, {weekd}:'.format(**var.dict_re), m.message.text):
+    if match('{p}{ch} класс, {weekd}:'.format(**constants.dict_re), m.message.text):
         back = f'tt_{parallel}_{char}_{weekday}'
     else:
         back = f'tt_{parallel}_{char}'
