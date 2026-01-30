@@ -35,11 +35,5 @@ def handler(event, context):
                 from changes_tt import mailing_changes_tt
                 mailing_changes_tt(bot, session, logger)
                 session.closing()
-        elif event['details']['payload'] == 'mailing_sferum':
-            session, _ = set_connect(50)
-            if not session is None:
-                from sferum import mailing_sferum
-                mailing_sferum(bot, session, logger)
-                session.closing()
 
     return {'statusCode': 200, 'body': '!'}
