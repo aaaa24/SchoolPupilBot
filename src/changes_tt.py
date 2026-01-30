@@ -4,18 +4,18 @@ from re import search
 import ydb
 from telebot import types
 
-import var
-from funcs import send_text, edit_level
-from var import Phrase
+import constants
+from constants import Phrase
+from utils import send_text, edit_level
 
 
 def edit_changes_tt(m, user, bot, session, *args, **kwargs):
     date = m.data.split('$')[0].split('_')[1]
     time_date = time.strptime(date, '%d.%m.%Y')
 
-    text = Phrase.EDIT_CHANGES_TT.format(acc=var.weekdays[time_date.tm_wday]['accusative'],
+    text = Phrase.EDIT_CHANGES_TT.format(acc=constants.weekdays[time_date.tm_wday]['accusative'],
                                          day=time_date.tm_mday,
-                                         dec=var.months[time_date.tm_mon - 1]['dec'],
+                                         dec=constants.months[time_date.tm_mon - 1]['dec'],
                                          year=time_date.tm_year
                                          )
 
@@ -41,9 +41,9 @@ def del_changes_tt(m, user, bot, session, *args, **kwargs):
         settings=ydb.BaseRequestSettings().with_timeout(3).with_operation_timeout(2)
     )
 
-    text = Phrase.YES_DEL_CHANGES_TT.format(acc=var.weekdays[time_date.tm_wday]['accusative'],
+    text = Phrase.YES_DEL_CHANGES_TT.format(acc=constants.weekdays[time_date.tm_wday]['accusative'],
                                             day=time_date.tm_mday,
-                                            dec=var.months[time_date.tm_mon - 1]['dec'],
+                                            dec=constants.months[time_date.tm_mon - 1]['dec'],
                                             year=time_date.tm_year
                                             )
 
@@ -59,9 +59,9 @@ def confirmation_del_changes_tt(m, user, bot, session, *args, **kwargs):
     date = m.data.split('$')[0].split('_')[1]
     time_date = time.strptime(date, '%d.%m.%Y')
 
-    text = Phrase.CONFIRMATION_OF_DEL_CHANGES_TT.format(acc=var.weekdays[time_date.tm_wday]['accusative'],
+    text = Phrase.CONFIRMATION_OF_DEL_CHANGES_TT.format(acc=constants.weekdays[time_date.tm_wday]['accusative'],
                                                         day=time_date.tm_mday,
-                                                        dec=var.months[time_date.tm_mon - 1]['dec'],
+                                                        dec=constants.months[time_date.tm_mon - 1]['dec'],
                                                         year=time_date.tm_year
                                                         )
 
@@ -117,8 +117,9 @@ def mailing_changes_tt(bot, session, logger, *args, **kwargs):
         )
     elif file_ids:
         text = Phrase.CHANGES_TT_SOON.format(fewd='завтра' if flag == 'tomorrow' else 'сегодня',
-                                             weekd=var.weekdays[struct_time.tm_wday]['name'],
-                                             day=struct_time.tm_mday, dec=var.months[struct_time.tm_mon - 1]['dec'])
+                                             weekd=constants.weekdays[struct_time.tm_wday]['name'],
+                                             day=struct_time.tm_mday,
+                                             dec=constants.months[struct_time.tm_mon - 1]['dec'])
 
         list_inline_btn = [
             ('🔔 Подписка на изменения', 'subchtt$new'),
@@ -228,18 +229,19 @@ def get_photo(m, user, bot, session, *args, **kwargs):
     if 'date' in kwargs:
         date = kwargs['date']
         time_date = time.strptime(date, '%d.%m.%Y')
-        text = Phrase.EDIT_CHANGES_DATE.format(acc=var.weekdays[time_date.tm_wday]['accusative'],
-                                               day=time_date.tm_mday, dec=var.months[time_date.tm_mon - 1]['dec'],
+        text = Phrase.EDIT_CHANGES_DATE.format(acc=constants.weekdays[time_date.tm_wday]['accusative'],
+                                               day=time_date.tm_mday, dec=constants.months[time_date.tm_mon - 1]['dec'],
                                                year=time_date.tm_year)
 
         message_text = m.message.text
         if message_text is None:
             message_text = m.message.caption
-        if search(Phrase.EDIT_CHANGES_TT.replace('(', r'\(').replace(')', r'\)').format(**var.dict_re), message_text):
+        if search(Phrase.EDIT_CHANGES_TT.replace('(', r'\(').replace(')', r'\)').format(**constants.dict_re),
+                  message_text):
             list_inline_btn = [('← Назад', f'echtt_{date}')]
-        elif search(Phrase.CHANGES_TT_SOON.replace('(', r'\(').replace(')', r'\)').format(**var.dict_re),
+        elif search(Phrase.CHANGES_TT_SOON.replace('(', r'\(').replace(')', r'\)').format(**constants.dict_re),
                     message_text) or \
-                search(Phrase.NOT_CHANGES_TT_SOON.replace('(', r'\(').replace(')', r'\)').format(**var.dict_re),
+                search(Phrase.NOT_CHANGES_TT_SOON.replace('(', r'\(').replace(')', r'\)').format(**constants.dict_re),
                        message_text):
             list_inline_btn = [('← Назад', 'chtt')]
         else:
@@ -295,8 +297,9 @@ def add_changes_tt(m, user, bot, session, *args, **kwargs):
             phr = Phrase.EDIT_CHANGES_SUCCESSFULL
             list_inline_btn = [('← Назад', f'chtt_{date}')]
 
-        text = phr.format(acc=var.weekdays[time_date.tm_wday]['accusative'],
-                          day=time_date.tm_mday, dec=var.months[time_date.tm_mon - 1]['dec'], year=time_date.tm_year)
+        text = phr.format(acc=constants.weekdays[time_date.tm_wday]['accusative'],
+                          day=time_date.tm_mday, dec=constants.months[time_date.tm_mon - 1]['dec'],
+                          year=time_date.tm_year)
     else:
         list_inline_btn = [('← Назад', 'chtt')]
 
@@ -346,8 +349,9 @@ def send_date(m, user, bot, session, *args, **kwargs):
             else:
                 phr = Phrase.NOT_CHANGES_TT_WEEKDAY
                 f = 2
-        text = phr.format(acc=var.weekdays[time_date.tm_wday]['accusative'],
-                          day=time_date.tm_mday, dec=var.months[time_date.tm_mon - 1]['dec'], year=time_date.tm_year)
+        text = phr.format(acc=constants.weekdays[time_date.tm_wday]['accusative'],
+                          day=time_date.tm_mday, dec=constants.months[time_date.tm_mon - 1]['dec'],
+                          year=time_date.tm_year)
 
     else:
         text = Phrase.ERROR_DATE
@@ -388,7 +392,7 @@ def send_date(m, user, bot, session, *args, **kwargs):
 def find_date(text):
     text = text.replace('/', '.').replace('\\', '.')
 
-    months = [i['abb_name'].replace(".", "") for i in var.months] + [i['dec'] for i in var.months]
+    months = [i['abb_name'].replace(".", "") for i in constants.months] + [i['dec'] for i in constants.months]
     if not (s1 := search(r'\d{1,2}\.\d{2}\.\d{4}', text)) is None:
         print('Первый вариант даты найден')
         date = s1[0]
@@ -401,14 +405,14 @@ def find_date(text):
     elif not (s4 := search('\\d{1,2} ' + f'({"|".join(months)})' + ' \\d{4}', text)) is None:
         print('Четвёртый вариант даты найден')
         sp = s4[0].split()
-        for m in var.months:
+        for m in constants.months:
             if sp[1] == m['dec'] or sp[1] in m['abb_name']:
                 mon = ('0' + str(m['num']))[-2:]
         date = sp[0] + '.' + mon + '.' + sp[2]
     elif not (s5 := search('\\d{1,2} ' + f'({"|".join(months)})', text)) is None:
         print('Пятый вариант даты найден')
         sp = s5[0].split()
-        for m in var.months:
+        for m in constants.months:
             if sp[1] == m['dec'] or sp[1] in m['abb_name']:
                 mon = ('0' + str(m['num']))[-2:]
         date = sp[0] + '.' + mon + '.' + time.strftime('%Y', time.localtime(time.time() + 10800))
@@ -490,8 +494,8 @@ def call(m, user, bot, session, *args, **kwargs):
         file_ids = _get_file_id(sql_tomorrow, session)
         if file_ids:
             text = Phrase.CHANGES_TT_SOON.format(fewd='завтра' if time_now.tm_wday != 5 else 'послезавтра',
-                                                 weekd=var.weekdays[tomorrow.tm_wday]['name'],
-                                                 day=tomorrow.tm_mday, dec=var.months[tomorrow.tm_mon - 1]['dec'])
+                                                 weekd=constants.weekdays[tomorrow.tm_wday]['name'],
+                                                 day=tomorrow.tm_mday, dec=constants.months[tomorrow.tm_mon - 1]['dec'])
             if time_now.tm_wday != 6:
                 list_inline_btn += [('Изменения на сегодня', f'chtt_{date_today}')]
             flag = 0
@@ -503,18 +507,21 @@ def call(m, user, bot, session, *args, **kwargs):
         if time_now.tm_wday != 6:
             file_ids = _get_file_id(sql_today, session)
             if file_ids:
-                text = Phrase.CHANGES_TT_SOON.format(fewd='сегодня', weekd=var.weekdays[time_now.tm_wday]['name'],
-                                                     day=time_now.tm_mday, dec=var.months[time_now.tm_mon - 1]['dec'])
+                text = Phrase.CHANGES_TT_SOON.format(fewd='сегодня', weekd=constants.weekdays[time_now.tm_wday]['name'],
+                                                     day=time_now.tm_mday,
+                                                     dec=constants.months[time_now.tm_mon - 1]['dec'])
             else:
-                text = Phrase.NOT_CHANGES_TT_SOON.format(fewd='сегодня', weekd=var.weekdays[time_now.tm_wday]['name'],
+                text = Phrase.NOT_CHANGES_TT_SOON.format(fewd='сегодня',
+                                                         weekd=constants.weekdays[time_now.tm_wday]['name'],
                                                          day=time_now.tm_mday,
-                                                         dec=var.months[time_now.tm_mon - 1]['dec'])
+                                                         dec=constants.months[time_now.tm_mon - 1]['dec'])
             if flag == 2:
                 list_inline_btn += [('Изменения на завтра' if time_now.tm_wday != 5 else 'Изменения на послезавтра',
                                      f'chtt_{date_tomorrow}')]
         else:
-            text = Phrase.NOT_CHANGES_TT_SOON.format(fewd='завтра', weekd=var.weekdays[tomorrow.tm_wday]['name'],
-                                                     day=tomorrow.tm_mday, dec=var.months[tomorrow.tm_mon - 1]['dec'])
+            text = Phrase.NOT_CHANGES_TT_SOON.format(fewd='завтра', weekd=constants.weekdays[tomorrow.tm_wday]['name'],
+                                                     day=tomorrow.tm_mday,
+                                                     dec=constants.months[tomorrow.tm_mon - 1]['dec'])
 
     list_inline_btn += [('Изменения на другой день', 'dchtt')]
     if user['admin']:
