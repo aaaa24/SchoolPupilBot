@@ -3,9 +3,9 @@ import re
 import ydb
 from telebot import types
 
-import var
-from funcs import send_text, edit_level
-from var import Phrase
+import constants
+from utils import send_text, edit_level
+from constants import Phrase
 
 clear_symbols = lambda s: re.sub(r'[\.\-" 0-9\(\)\\/\:]+', '', s.lower())
 limit_teachers = 15
@@ -156,7 +156,7 @@ def show_timetable(m, user, bot, session, *args, **kwargs):
     else:
         teacher_id, weekday = m.data.split('$')[0].split('_')[1:3]
         all_weekdays = ''
-    for w in var.weekdays:
+    for w in constants.weekdays:
         if weekday in w.values():
             full_weekday = w['name']
             n_weekday = w['num']
@@ -271,7 +271,7 @@ def choose_weekday(m, user, bot, session, *args, **kwargs):
             teacher = m.message.text.split('\n')[0]
 
     sorted_weekdays = sorted(request[0].rows, key=lambda x: x['weekday'])
-    weekdays = [var.weekdays[w['weekday'] - 1]['abb_name'] for w in sorted_weekdays]
+    weekdays = [constants.weekdays[w['weekday'] - 1]['abb_name'] for w in sorted_weekdays]
     str_weekdays = ''.join([str(w['weekday']) for w in sorted_weekdays])
     list_inline_btn = [(w, f'tttea_{teacher_id}_{w}_{str_weekdays}') for w in weekdays]
 
@@ -477,7 +477,7 @@ def find_subjects_and_classes_in_line(line, pattern_subj, pattern_cl):
     found_subjects = re.findall(pattern_subj, line)
     result_subjects = set()
     for found_subject in found_subjects:
-        for subject in var.subjects:
+        for subject in constants.subjects:
             if found_subject.lower() == clear_symbols(subject['name']) or found_subject.lower() in subject['var_names']:
                 result_subjects.add(subject['name'])
 
@@ -498,7 +498,7 @@ def find_subjects_and_classes_in_line(line, pattern_subj, pattern_cl):
 
 def find_subjects_and_classes(text):
     list_subjects = []
-    for subj in var.subjects:
+    for subj in constants.subjects:
         list_subjects.append(clear_symbols(subj['name']))
         list_subjects.extend(subj['var_names'])
     str_subjects = '|'.join([re.escape(subj) for subj in list_subjects])
@@ -621,7 +621,7 @@ def add_class_teacher(m, user, bot, session, *args, **kwargs):
     flag, parallel, char = m.data.split('$')[0].split('_')[1:4]
     if flag == 'да':
         from re import search
-        teacher = search(Phrase.CLASS_TEACHER_NOT_IN_DB.format(**var.dict_re), m.message.text)
+        teacher = search(Phrase.CLASS_TEACHER_NOT_IN_DB.format(**constants.dict_re), m.message.text)
         teacher = teacher.group(1)
 
         request = session.transaction().execute(
@@ -726,7 +726,7 @@ def info_teacher(m, user, bot, session, *args, **kwargs):
         if teacher['birthday']:
             from time import strptime
             birthday = strptime(teacher['birthday'], '%d.%m.%Y')
-            month_birthday = var.months[birthday.tm_mon - 1]['dec']
+            month_birthday = constants.months[birthday.tm_mon - 1]['dec']
             text += f'\n\nДень рождения: {birthday.tm_mday} {month_birthday}'
     else:
         text = Phrase.NOT_TEACHER_IN_DB
@@ -746,7 +746,7 @@ def info_teacher(m, user, bot, session, *args, **kwargs):
             inline_kb.row(types.InlineKeyboardButton('Предметы и классы', callback_data=callback_data))
 
     if back is None:
-        is_list_class_teachers = re.match(Phrase.LIST_CLASS_TEACHERS.format(**var.dict_re), m.message.text)
+        is_list_class_teachers = re.match(Phrase.LIST_CLASS_TEACHERS.format(**constants.dict_re), m.message.text)
         if m.message.text.startswith('Список учителей:\n'):
             buttons = [(b.text, b.callback_data) for l in m.message.reply_markup.keyboard for b in l]
             back = get_back_button(m.message.reply_markup.keyboard, 'listtea')
@@ -920,7 +920,7 @@ def _find_subjs(text):
             number_class = int(number.group(1))
             continue
         clean_line = clear_symbols(line).split()
-        for sub in var.subjects:
+        for sub in constants.subjects:
             if clear_symbols(sub['name']) in clean_line or any(
                     [clear_symbols(var) in clean_line for var in sub['var_names']]):
                 subjs.append(sub['name'])

@@ -1,208 +1,19 @@
-import time
+import re
 
-from telebot import types, apihelper
-
+import changes_tt
+import classes
 import cmd_recognition
-import var
-from var import Phrase
-
-
-def get_inline_button(button):
-    if len(button) == 3 and button[2] == 'url':
-        return types.InlineKeyboardButton(button[0], url=button[1])
-    else:
-        return types.InlineKeyboardButton(button[0], callback_data=button[1])
-
-
-def create_inline_kb(list_inline_btn, row_width=3):
-    inline_kb = types.InlineKeyboardMarkup(row_width=row_width)
-    for row in list_inline_btn:
-        if type(row) is list:
-            inline_kb.row(*[get_inline_button(button) for button in row])
-        elif type(row) is tuple:
-            inline_kb.row(get_inline_button(row))
-    return inline_kb
-
-
-def except_429(f, n=1, **k):
-    if n == 5:
-        try:
-            eval(f)
-        except:
-            print('Всё плохо')
-            return False
-        else:
-            return True
-    try:
-        eval(f)
-    except apihelper.ApiTelegramException as e:
-        print(n, e)
-        if 'Error code: 429' in str(e):
-            time.sleep(4)
-            except_429(f, n + 1, **k)
-
-
-def find_callback_data(message, text):
-    data = None
-    keyboard = message.reply_markup.keyboard
-    for row in keyboard:
-        for btn in row:
-            if text in btn.text:
-                data = btn.callback_data
-                break
-        else:
-            continue
-        break
-    return data
-
-
-def find_callback_text(message, data):
-    text = None
-    keyboard = message.reply_markup.keyboard
-    for row in keyboard:
-        for btn in row:
-            if data == btn.callback_data:
-                text = btn.text
-                break
-        else:
-            continue
-        break
-    return text
-
-
-def cancel(m, user, bot, session, *args, **kwargs):
-    bot.delete_message(m.message.chat.id, m.message.message_id)
-
-    if '$del' in m.data:
-        message_ids = m.data[m.data.index('$del') + 4:].split('$')[0].split(',')
-        for message_id in message_ids:
-            bot.delete_message(m.message.chat.id, message_id)
-
-    if user['level'] != 'menu':
-        from funcs import edit_level
-        edit_level(m, 'menu', session)
-
-
-def suffixes(bot, m, text, inline_kb, **kwargs):
-    if '$del' in m.data:
-        message_ids = m.data[m.data.index('$del') + 4:].split('$')[0].split(',')
-        for message_id in message_ids:
-            bot.delete_message(m.message.chat.id, message_id)
-    if '$sdel' in m.data:
-        bot.delete_message(m.message.chat.id, m.message.message_id)
-
-
-def send_photo(bot, m, text, photo_id, inline_kb, new_message=False, **kwargs):
-    if hasattr(m, 'message'):
-        suffixes(bot, m, text, inline_kb, **kwargs)
-        if m.message.content_type == 'photo':
-            if not ('$new' in m.data or '$sdel' in m.data or new_message):
-                photo = types.InputMediaPhoto(photo_id, caption=text, **kwargs)
-                return bot.edit_message_media(photo, m.message.chat.id, m.message.id, reply_markup=inline_kb)
-        m = m.message
-
-    return bot.send_photo(m.chat.id, caption=text, photo=photo_id, reply_markup=inline_kb, **kwargs)
-
-
-def send_text(bot, m, text, inline_kb, new_message=False, **kwargs):
-    if hasattr(m, 'message'):
-        suffixes(bot, m, text, inline_kb, **kwargs)
-        if m.message.content_type == 'text':
-            if not ('$new' in m.data or '$sdel' in m.data or new_message):
-                return bot.edit_message_text(text, m.message.chat.id, m.message.id, reply_markup=inline_kb, **kwargs)
-        m = m.message
-
-    return bot.send_message(m.chat.id, text, reply_markup=inline_kb, **kwargs)
-
-
-def info(m, user, bot, session, *args, **kwargs):
-    text = Phrase.BOT_INFO
-
-    inline_kb = types.InlineKeyboardMarkup()
-    inline_kb.row(types.InlineKeyboardButton('💬 Обратная связь', callback_data='fback'))
-    inline_kb.row(
-        types.InlineKeyboardButton('🎓 Бот «Школьный тренер»', url='https://t.me/SchoolCoachBot?start=fromSchoolPupil'))
-    inline_kb.row(types.InlineKeyboardButton('🏠 В меню', callback_data='menu'))
-
-    send_text(bot, m, text, inline_kb)
-    if user['level'] != 'menu':
-        edit_level(m, 'menu', session)
-
-
-def edit_level(m, level, session):
-    import ydb
-    if hasattr(m, 'from_user'):
-        user_id = m.from_user.id
-    else:
-        if m.json['from']['is_bot']:
-            user_id = m.json['chat']['id']
-        else:
-            user_id = m.json['from']['id']
-    if user_id < 0:
-        return False
-    request = session.transaction().execute(
-        f'UPSERT INTO users (id, level) VALUES ({user_id}, "{level}");',
-        commit_tx=True,
-        settings=ydb.BaseRequestSettings().with_timeout(3).with_operation_timeout(2)
-    )
-    return True
-
-
-def auth_user(m, user, bot, session, *args, **kwargs):
-    import os
-
-    list_inline_btn = [
-        [('🗓 Расписание', 'tt'), ('🎓 Классы', 'cl')],
-        ('📝 Изменения в расписании', 'chtt'),
-        ('🔔 Подписка на новости', 'news'),
-        ('👨‍🏫 Учителя', 'tea'),
-        ('💳 Поддержать разработчика', 'pay'),
-        ('ℹ️ Информация', 'inf')
-    ]
-    if m.from_user.id == int(os.getenv('SUPERADMIN')):
-        list_inline_btn.append(('👥 Пользователи', 'users'))
-    inline_kb = create_inline_kb(list_inline_btn)
-
-    send_text(bot, m, Phrase.START, inline_kb)
-    edit_level(m, 'menu', session)
-
-
-def _check_short_cmd(txt):
-    list_of_cmds = []
-    for k in short_cmds:
-        if short_cmds[k](txt):
-            list_of_cmds.append(k)
-    return list_of_cmds
-
-
-def is_send_news(m, user, bot, session, *args, **kwargs):
-    import ydb
-
-    request = session.transaction().execute(
-        f'UPSERT INTO users (id, send_news) VALUES ({m.json["from"]["id"]}, {not user["send_news"]});',
-        commit_tx=True,
-        settings=ydb.BaseRequestSettings().with_timeout(3).with_operation_timeout(2)
-    )
-    if hasattr(m, 'message'):
-        m = m.message
-    bot.send_message(m.chat.id, 'Подписка на новости школы включена' if not user[
-        'send_news'] else 'Подписка на новости школы отключена')
-
-
-def list_of_cmds(m, user, bot, session, *args, **kwargs):
-    text = '''Список команд:
-/commands – список команд;
-/main – переход в главное меню;
-/timetable – расписание уроков;
-/classes – информация о классах;
-/changes_tt – изменения в расписании;
-/teachers – информация об учителях;
-/teachers_schedule – расписание учителей;
-/news – подписка на новости школы;
-/feedback – обратная связь;
-/info – информация о боте.'''
-
-    bot.send_message(m.chat.id, text)
+import communication
+import handlers
+import helper
+import pay
+import statistics
+import subscribe
+import teachers
+import timetable
+import users
+import constants
+from constants import Phrase
 
 
 def text_handling(m, user, bot, session, *args, **kwargs):
@@ -229,54 +40,33 @@ def text_handling(m, user, bot, session, *args, **kwargs):
 
     if list_of_short_cmds:
         command = list_of_short_cmds[0]
-        modules(list_func[commands[command]], m, user, bot, session)
+        list_func[commands[command]](m, user, bot, session)
         log_info['result'] = 'short_cmd'
     else:
         if user['level'].isdigit():
-            modules(list_func[int(user['level'])], m, user, bot, session)
+            list_func[int(user['level'])](m, user, bot, session)
             log_info['result'] = 'digit_level'
         else:
-            modules(list_func[commands[user['level']]], m, user, bot, session)
+            list_func[commands[user['level']]](m, user, bot, session)
             log_info['result'] = 'command_level'
 
     logger.info('Ответ пользователю отправлен', extra={'type_event': 'message', 'info': log_info})
 
 
-def to_menu(m, user, bot, session, *args, **kwargs):
-    import os
-
-    list_inline_btn = [
-        [('🗓 Расписание', 'tt'), ('🎓 Классы', 'cl')],
-        ('📝 Изменения в расписании', 'chtt'),
-        ('🔔 Подписка на новости', 'news'),
-        ('👨‍🏫 Учителя', 'tea'),
-        ('💳 Поддержать разработчика', 'pay'),
-        ('ℹ️ Информация', 'inf')
-    ]
-    if m.from_user.id == int(os.getenv('SUPERADMIN')):
-        list_inline_btn.append(('👥 Пользователи', 'users'))
-    inline_kb = create_inline_kb(list_inline_btn)
-
-    send_text(bot, m, Phrase.MENU, inline_kb)
-    if user['level'] != 'menu':
-        edit_level(m, 'menu', session)
-
-
 def check_answer(m, user, bot, session, *args, **kwargs):
-    from re import match
     if m.reply_to_message and not m.reply_to_message.text is None and m.reply_to_message.from_user.id == bot.get_me().id:
         txt = m.reply_to_message.text
         for t in phrases_answer.items():
-            data = match(t[0].replace('(', '\\(').replace(')', '\\)').format(**var.dict_re), txt)
+            data = re.match(t[0].replace('(', '\\(').replace(')', '\\)').format(**constants.dict_re), txt)
             if data:
-                modules(t[1], m, user, bot, session, *data.groups(), *args, **kwargs)
+                t[1](m, user, bot, session, *data.groups(), *args, **kwargs)
                 return 'reply_to_message'
 
     txt = user['level']
     for t in level_answer.items():
-        data = match(t[0].format(**var.dict_re), txt)
+        data = re.match(t[0].format(**constants.dict_re), txt)
         if data:
-            modules(t[1], m, user, bot, session, *data.groups(), *args, **kwargs)
+            t[1](m, user, bot, session, *data.groups(), *args, **kwargs)
             return 'level'
     return False
 
@@ -298,9 +88,29 @@ def callback_handling(callback_query, user, bot, session, *args, **kwargs):
     logger.info('Ответ пользователю отправлен', extra={'type_event': 'callback_query', 'info': log_info})
 
 
-def tt_callback(callback_query, user, bot, session, *args, **kwargs):
-    import timetable
+def _check_short_cmd(txt):
+    list_of_cmds = []
+    for k in short_cmds:
+        if short_cmds[k](txt):
+            list_of_cmds.append(k)
+    return list_of_cmds
 
+
+def find_callback_text(message, data):
+    text = None
+    keyboard = message.reply_markup.keyboard
+    for row in keyboard:
+        for btn in row:
+            if data == btn.callback_data:
+                text = btn.text
+                break
+        else:
+            continue
+        break
+    return text
+
+
+def tt_callback(callback_query, user, bot, session, *args, **kwargs):
     query = callback_query.data
     quert_without = query.split('$')[0]
     quert_split = quert_without.split('_')
@@ -318,7 +128,7 @@ def tt_callback(callback_query, user, bot, session, *args, **kwargs):
     elif quert_split[0] == 'att':
         function = timetable.add_weekday
     elif quert_split[0] == 'ett':
-        if quert_split[-1].isalpha() and quert_split[-1] in [day['abb_name'] for day in var.weekdays]:
+        if quert_split[-1].isalpha() and quert_split[-1] in [day['abb_name'] for day in constants.weekdays]:
             function = timetable.edit
     elif quert_without == 'hol':
         function = timetable.holidays
@@ -331,8 +141,6 @@ def tt_callback(callback_query, user, bot, session, *args, **kwargs):
 
 
 def cl_callback(callback_query, user, bot, session, *args, **kwargs):
-    import classes
-
     query = callback_query.data
     quert_without = query.split('$')[0]
     quert_split = quert_without.split('_')
@@ -365,8 +173,6 @@ def cl_callback(callback_query, user, bot, session, *args, **kwargs):
 
 
 def tea_callback(callback_query, user, bot, session, *args, **kwargs):
-    import teachers
-
     query = callback_query.data
     quert_without = query.split('$')[0]
     quert_split = quert_without.split('_')
@@ -410,8 +216,6 @@ def tea_callback(callback_query, user, bot, session, *args, **kwargs):
 
 
 def chtt_callback(callback_query, user, bot, session, *args, **kwargs):
-    import changes_tt
-
     query = callback_query.data
     quert_without = query.split('$')[0]
     quert_split = quert_without.split('_')
@@ -448,8 +252,6 @@ def chtt_callback(callback_query, user, bot, session, *args, **kwargs):
 
 
 def news_callback(callback_query, user, bot, session, *args, **kwargs):
-    import subscribe
-
     query = callback_query.data
     quert_without = query.split('$')[0]
     quert_split = quert_without.split('_')
@@ -468,8 +270,6 @@ def news_callback(callback_query, user, bot, session, *args, **kwargs):
 
 
 def help_callback(callback_query, user, bot, session, *args, **kwargs):
-    import helper
-
     query = callback_query.data
     quert_without = query.split('$')[0]
     quert_split = quert_without.split('_')
@@ -484,8 +284,6 @@ def help_callback(callback_query, user, bot, session, *args, **kwargs):
 
 
 def comm_callback(callback_query, user, bot, session, *args, **kwargs):
-    import communication
-
     query = callback_query.data
     quert_without = query.split('$')[0]
     quert_split = quert_without.split('_')
@@ -528,9 +326,6 @@ def comm_callback(callback_query, user, bot, session, *args, **kwargs):
 
 
 def users_callback(callback_query, user, bot, session, *args, **kwargs):
-    import statistics
-    import users
-
     query = callback_query.data
     quert_without = query.split('$')[0]
     quert_split = quert_without.split('_')
@@ -553,8 +348,6 @@ def users_callback(callback_query, user, bot, session, *args, **kwargs):
 
 
 def pay_callback(callback_query, user, bot, session, *args, **kwargs):
-    import pay
-
     query = callback_query.data
     quert_without = query.split('$')[0]
     quert_split = quert_without.split('_')
@@ -570,13 +363,6 @@ def pay_callback(callback_query, user, bot, session, *args, **kwargs):
         function(callback_query, user, bot, session, *args, **kwargs)
 
 
-def modules(function, m, user, bot, session, *args, **kwargs):
-    if '.' in function:
-        module = '.'.join(function.split('.')[:-1])
-        exec(f'import {module}')
-    eval(f'{function}(m, user, bot, session, *args, **kwargs)')
-
-
 # !!! Нет коротких команд для изменений в расписании, и отключены для вкл/выкл подписки и для помощи
 short_cmds = {
     'home': cmd_recognition.home, 'timetable_edit': cmd_recognition.edit_tt,
@@ -589,10 +375,10 @@ short_cmds = {
 admin_commands = ['timetable_edit', 'stat', 'user', 'users']
 
 list_func = {
-    0: 'auth_user', 1: 'to_menu', 2: 'timetable.call', 3: 'timetable.call', 4: 'changes_tt.call',
-    5: 'subscribe.call', 6: 'list_of_cmds', 7: 'classes.call', 8: 'teachers.call', 9: 'helper.get_help',
-    10: 'communication.ask_feedback', 11: 'info', 12: 'statistics.call', 13: 'users.about_user_cmd',
-    14: 'users.call', 15: 'teachers.tt_list_teachers', 16: 'pay.call'
+    0: handlers.auth_user, 1: handlers.to_menu, 2: timetable.call, 3: timetable.call, 4: changes_tt.call,
+    5: subscribe.call, 6: handlers.list_of_cmds, 7: classes.call, 8: teachers.call, 9: helper.get_help,
+    10: communication.ask_feedback, 11: handlers.info, 12: statistics.call, 13: users.about_user_cmd,
+    14: users.call, 15: teachers.tt_list_teachers, 16: pay.call
 }
 
 commands = {
@@ -602,7 +388,7 @@ commands = {
 }
 
 list_funcs_callback = {
-    'menu': to_menu, 'cncl': cancel, 'inf': info, '123': help_callback,
+    'menu': handlers.to_menu, 'cncl': handlers.cancel, 'inf': handlers.info, '123': help_callback,
     'tt': tt_callback, 'ett': tt_callback, 'att': tt_callback, 'hol': tt_callback, 'callsch': tt_callback,
     'cl': cl_callback, 'ecl': cl_callback, 'tcl': cl_callback, 'ncl': cl_callback,
     'dcl': cl_callback, 'ccl': cl_callback, 'listcltea': cl_callback,
@@ -624,40 +410,40 @@ list_funcs_callback = {
 }
 
 phrases_answer = {
-    Phrase.EDIT_TT: 'timetable.writing', Phrase.ADD_TEA: 'teachers.writing_new',
-    Phrase.INPUT_DATE: 'changes_tt.send_date', Phrase.IT_IS_SUNDAY: 'changes_tt.send_date',
-    Phrase.ERROR_DATE: 'changes_tt.send_date',
-    Phrase.EDIT_CHANGES_NOT_DATE: 'changes_tt.add_changes_tt',
-    Phrase.NEED_CAPTION: 'changes_tt.add_changes_tt',
-    Phrase.EDIT_IT_IS_SUNDAY: 'changes_tt.add_changes_tt',
-    Phrase.ENTER_CLASS_CABINET: 'classes.edit_cabinet',
-    Phrase.NOT_EDIT_CLASS_CABINET: 'classes.edit_cabinet',
-    Phrase.ENTER_COUNT_PUPILS: 'classes.edit_count', Phrase.NOT_EDIT_COUNT_PUPILS: 'classes.edit_count',
-    Phrase.ENTER_CLASS_TEACHER: 'classes.edit_class_teacher',
-    Phrase.NOT_EDIT_CLASS_TEACHER: 'classes.edit_class_teacher',
-    Phrase.ASK_FEEDBACK: 'communication.accept_feedback',
-    Phrase.ACCEPT_FEEDBACK: 'communication.accept_feedback',
-    Phrase.ASK_ID_TO_WRITE: 'communication.ask_text_to_write',
-    Phrase.CONFIRMATION_MESSAGE_TO_USERS: 'communication.last_user',
-    Phrase.ANSWER_RECEIVED: 'communication.reply_to_answer',
-    Phrase.MESSAGE_FROM_USER: 'communication.reply_to_feedback',
-    Phrase.ANSWER_FROM_USER: 'communication.reply_to_feedback',
-    Phrase.ASK_BTNS: 'communication.add_button',
-    Phrase.GET_CHAT_ID_FOR_ABOUT: 'users.about_user', Phrase.CHAT_NOT_FOUND: 'users.about_user',
-    Phrase.NOT_ID_CHAT: 'users.about_user', Phrase.NOT_ID_USER: 'communication.ask_text_to_write',
-    Phrase.USER_NOT_FOUND: 'communication.ask_text_to_write'
+    Phrase.EDIT_TT: timetable.writing, Phrase.ADD_TEA: teachers.writing_new,
+    Phrase.INPUT_DATE: changes_tt.send_date, Phrase.IT_IS_SUNDAY: changes_tt.send_date,
+    Phrase.ERROR_DATE: changes_tt.send_date,
+    Phrase.EDIT_CHANGES_NOT_DATE: changes_tt.add_changes_tt,
+    Phrase.NEED_CAPTION: changes_tt.add_changes_tt,
+    Phrase.EDIT_IT_IS_SUNDAY: changes_tt.add_changes_tt,
+    Phrase.ENTER_CLASS_CABINET: classes.edit_cabinet,
+    Phrase.NOT_EDIT_CLASS_CABINET: classes.edit_cabinet,
+    Phrase.ENTER_COUNT_PUPILS: classes.edit_count, Phrase.NOT_EDIT_COUNT_PUPILS: classes.edit_count,
+    Phrase.ENTER_CLASS_TEACHER: classes.edit_class_teacher,
+    Phrase.NOT_EDIT_CLASS_TEACHER: classes.edit_class_teacher,
+    Phrase.ASK_FEEDBACK: communication.accept_feedback,
+    Phrase.ACCEPT_FEEDBACK: communication.accept_feedback,
+    Phrase.ASK_ID_TO_WRITE: communication.ask_text_to_write,
+    Phrase.CONFIRMATION_MESSAGE_TO_USERS: communication.last_user,
+    Phrase.ANSWER_RECEIVED: communication.reply_to_answer,
+    Phrase.MESSAGE_FROM_USER: communication.reply_to_feedback,
+    Phrase.ANSWER_FROM_USER: communication.reply_to_feedback,
+    Phrase.ASK_BTNS: communication.add_button,
+    Phrase.GET_CHAT_ID_FOR_ABOUT: users.about_user, Phrase.CHAT_NOT_FOUND: users.about_user,
+    Phrase.NOT_ID_CHAT: users.about_user, Phrase.NOT_ID_USER: communication.ask_text_to_write,
+    Phrase.USER_NOT_FOUND: communication.ask_text_to_write
 }
 
 level_answer = {
-    'ett_{p}_{ch}_{abb}': 'timetable.writing', 'atea': 'teachers.writing_new',
-    'dchtt': 'changes_tt.send_date', 'achtt_{date}': 'changes_tt.add_changes_tt',
-    'ncl_{p}_{ch}': 'classes.edit_cabinet', 'ccl_{p}_{ch}': 'classes.edit_count',
-    'tcl_{p}_{ch}': 'classes.edit_class_teacher',
-    'afback_{u_id}_{m_id}_{m_id}': 'communication.confirmation_answer_to_user',
-    'fback': 'communication.accept_feedback',
-    'ans_{u_id}_{m_id}_{m_id}': 'communication.answer_to_afback', 'wusers': 'communication.ask_btns_to_users',
-    'wuser_{u_id}': 'communication.ask_btns_to_user', 'wuser': 'communication.ask_text_to_write',
-    'aboutuser': 'users.about_user', 'atttea_{text}': 'teachers.add_subjects_and_classes',
-    'dtttea_{text}': 'teachers.del_subjects_and_classes', 'infofindtea_{text}': 'teachers.find_teachers_info',
-    'ttfindtea_{text}': 'teachers.find_teachers_tt'
+    'ett_{p}_{ch}_{abb}': timetable.writing, 'atea': teachers.writing_new,
+    'dchtt': changes_tt.send_date, 'achtt_{date}': changes_tt.add_changes_tt,
+    'ncl_{p}_{ch}': classes.edit_cabinet, 'ccl_{p}_{ch}': classes.edit_count,
+    'tcl_{p}_{ch}': classes.edit_class_teacher,
+    'afback_{u_id}_{m_id}_{m_id}': communication.confirmation_answer_to_user,
+    'fback': communication.accept_feedback,
+    'ans_{u_id}_{m_id}_{m_id}': communication.answer_to_afback, 'wusers': communication.ask_btns_to_users,
+    'wuser_{u_id}': communication.ask_btns_to_user, 'wuser': communication.ask_text_to_write,
+    'aboutuser': users.about_user, 'atttea_{text}': teachers.add_subjects_and_classes,
+    'dtttea_{text}': teachers.del_subjects_and_classes, 'infofindtea_{text}': teachers.find_teachers_info,
+    'ttfindtea_{text}': teachers.find_teachers_tt
 }

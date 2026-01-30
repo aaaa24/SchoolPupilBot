@@ -1,14 +1,15 @@
+import os
+import time
+
+from google.protobuf import timestamp_pb2
 from telebot import types
 
-from funcs import send_text
-from var import Phrase
+from constants import Phrase
+from utils import send_text
 
 
 def daily_statistics(bot, context, logger, *args, **kwargs):
-    from time import time
-    import os
-
-    t = time()
+    t = time.time()
     logger.debug('Запущена функция daily_statistics')
 
     text_filter = 'type_event EXISTS'
@@ -19,7 +20,7 @@ def daily_statistics(bot, context, logger, *args, **kwargs):
     parts_text = create_stat_from_logs(logs)
     for text in parts_text:
         bot.send_message(os.getenv('TECHNO_INFO'), text, parse_mode='HTML', disable_notification=True)
-    logger.debug('Статистика отправлена', extra={'duration': time() - t})
+    logger.debug('Статистика отправлена', extra={'duration': time.time() - t})
 
 
 def create_stat_from_logs(logs):
@@ -54,10 +55,8 @@ def plus_count(obj, key):
 
 
 def get_timestamp(offset=0, flag=None):
-    from time import time, localtime, mktime
-    from google.protobuf import timestamp_pb2
     if flag:
-        mark = list(localtime())
+        mark = list(time.localtime())
         if flag == 'since_minute':
             mark[5] = 0
         elif flag == 'since_hour':
@@ -83,10 +82,10 @@ def get_timestamp(offset=0, flag=None):
             mark[1] -= 1
         elif flag == 'year':
             mark[1] -= 1
-        seconds = int(mktime(tuple(mark)) - offset)
+        seconds = int(time.mktime(tuple(mark)) - offset)
         seconds -= 10800
     else:
-        seconds = int(time() - offset)
+        seconds = int(time.time() - offset)
     timestamp = timestamp_pb2.Timestamp(seconds=seconds)
     return timestamp
 
@@ -171,8 +170,7 @@ def call(m, user, bot, session, *args, **kwargs):
 def create_stat_text(count, users, commands, datas, levels, user_commands, user_datas, user_levels, date1=None,
                      date2=None):
     if date1 is None:
-        from time import localtime, strftime
-        date1 = strftime('%d.%m.%Y', localtime())
+        date1 = time.strftime('%d.%m.%Y', time.localtime())
     if date2 is None:
         text = f'<b>Статистика за {date1}</b>'
     else:
