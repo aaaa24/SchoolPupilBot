@@ -299,256 +299,275 @@ def callback_handling(callback_query, user, bot, session, *args, **kwargs):
 
 
 def tt_callback(callback_query, user, bot, session, *args, **kwargs):
+    import timetable
+
     query = callback_query.data
     quert_without = query.split('$')[0]
     quert_split = quert_without.split('_')
     function = None
 
     if quert_without == 'tt':
-        function = 'timetable.call'
+        function = timetable.call
     elif quert_split[0] == 'tt':
         if len(quert_split) == 2:
-            function = 'timetable.parall'
+            function = timetable.parall
         elif len(quert_split) == 3:
-            function = 'timetable.classes'
+            function = timetable.classes
         elif len(quert_split) in (4, 5):
-            function = 'timetable.weekday'
+            function = timetable.weekday
     elif quert_split[0] == 'att':
-        function = 'timetable.add_weekday'
+        function = timetable.add_weekday
     elif quert_split[0] == 'ett':
         if quert_split[-1].isalpha() and quert_split[-1] in [day['abb_name'] for day in var.weekdays]:
-            function = 'timetable.edit'
+            function = timetable.edit
     elif quert_without == 'hol':
-        function = 'timetable.holidays'
+        function = timetable.holidays
     elif quert_without == 'callsch':
-        function = 'timetable.call_schedule'
+        function = timetable.call_schedule
 
     kwargs['logger'].debug('Определена функция для обработки нажатия', extra={'function': function})
     if function:
-        modules(function, callback_query, user, bot, session, *args, **kwargs)
+        function(callback_query, user, bot, session, *args, **kwargs)
 
 
 def cl_callback(callback_query, user, bot, session, *args, **kwargs):
+    import classes
+
     query = callback_query.data
     quert_without = query.split('$')[0]
     quert_split = quert_without.split('_')
     function = None
 
     if quert_without == 'cl':
-        function = 'classes.call'
+        function = classes.call
     elif quert_split[0] == 'cl':
         if quert_split[-1].isdigit() and 1 <= int(quert_split[-1]) <= 11:
-            function = 'classes.parall'
+            function = classes.parall
         elif quert_split[-1].isalpha() and quert_split[-1] in ('А', 'Б', 'В', 'Г'):
-            function = 'classes.info'
+            function = classes.info
     elif quert_split[0] == 'ecl':
         if quert_split[-1].isdigit() and 1 <= int(quert_split[-1]) <= 11:
-            function = 'classes.add'
+            function = classes.add
         elif quert_split[-1].isalpha() and quert_split[-1] in ('А', 'Б', 'В', 'Г'):
-            function = 'classes.add_end'
+            function = classes.add_end
     elif quert_split[0] == 'ncl':
-        function = 'classes.call_edit_cabinet'
+        function = classes.call_edit_cabinet
     elif quert_split[0] == 'ccl':
-        function = 'classes.call_edit_count'
+        function = classes.call_edit_count
     elif quert_split[0] == 'tcl':
-        function = 'classes.call_edit_class_teacher'
+        function = classes.call_edit_class_teacher
     elif quert_split[0] == 'listcltea':
-        function = 'classes.class_teachers'
+        function = classes.class_teachers
 
     kwargs['logger'].debug('Определена функция для обработки нажатия', extra={'function': function})
     if function:
-        modules(function, callback_query, user, bot, session, *args, **kwargs)
+        function(callback_query, user, bot, session, *args, **kwargs)
 
 
 def tea_callback(callback_query, user, bot, session, *args, **kwargs):
+    import teachers
+
     query = callback_query.data
     quert_without = query.split('$')[0]
     quert_split = quert_without.split('_')
     function = None
 
     if quert_without == 'tea':
-        function = 'teachers.call'
+        function = teachers.call
     elif quert_without == 'atea':
-        function = 'teachers.add'
+        function = teachers.add
     elif quert_split[0] == 'listtea':
-        function = 'teachers.info_list_teachers'
+        function = teachers.info_list_teachers
     elif quert_split[0] == 'itea':
-        function = 'teachers.info_teacher'
+        function = teachers.info_teacher
     elif quert_split[0] == 'acltea':
-        function = 'teachers.add_class_teacher'
+        function = teachers.add_class_teacher
     elif quert_split[0] == 'atttea':
-        function = 'teachers.invitation_to_add_subjects_and_classes'
+        function = teachers.invitation_to_add_subjects_and_classes
     elif quert_split[0] == 'scltea':
-        function = 'teachers.show_subjects_and_classes'
+        function = teachers.show_subjects_and_classes
     elif quert_split[0] == 'dtttea':
-        function = 'teachers.invitation_to_del_subjects_and_classes'
+        function = teachers.invitation_to_del_subjects_and_classes
     elif quert_split[0] == 'fitttea':
-        function = 'teachers.choose_weekday'
+        function = teachers.choose_weekday
     elif quert_split[0] == 'tttea':
         if len(quert_split) == 2:
-            function = 'teachers.choose_weekday'
+            function = teachers.choose_weekday
         if len(quert_split) in (3, 4):
-            function = 'teachers.show_timetable'
+            function = teachers.show_timetable
     elif quert_split[0] == 'listtttea':
-        function = 'teachers.tt_list_teachers'
+        function = teachers.tt_list_teachers
     elif quert_without == 'ftttea':
-        function = 'teachers.foto_timetable'
+        function = teachers.foto_timetable
     elif quert_without == 'infofindtea':
-        function = 'teachers.ask_teacher_name_info'
+        function = teachers.ask_teacher_name_info
     elif quert_without == 'ttfindtea':
-        function = 'teachers.ask_teacher_name_tt'
+        function = teachers.ask_teacher_name_tt
 
     kwargs['logger'].debug('Определена функция для обработки нажатия', extra={'function': function})
     if function:
-        modules(function, callback_query, user, bot, session, *args, **kwargs)
+        function(callback_query, user, bot, session, *args, **kwargs)
 
 
 def chtt_callback(callback_query, user, bot, session, *args, **kwargs):
+    import changes_tt
+
     query = callback_query.data
     quert_without = query.split('$')[0]
     quert_split = quert_without.split('_')
     function = None
 
     if quert_without == 'chtt':
-        function = 'changes_tt.call'
+        function = changes_tt.call
     elif quert_without == 'dchtt':
-        function = 'changes_tt.get_date'
+        function = changes_tt.get_date
     elif quert_split[0] == 'chtt' and quert_split[1].count('.') == 2 and quert_split[1].replace('.', '').isdigit():
-        function = 'changes_tt.specific_date'
+        function = changes_tt.specific_date
     elif quert_without == 'achtt':
-        function = 'changes_tt.get_photo'
+        function = changes_tt.get_photo
     elif quert_split[0] == 'achtt' and quert_split[1].count('.') == 2 and quert_split[1].replace('.', '').isdigit():
-        function = 'changes_tt.specific_edit_date'
+        function = changes_tt.specific_edit_date
     elif quert_without == 'subchtt':
-        function = 'changes_tt.subscribe'
+        function = changes_tt.subscribe
     elif quert_split[0] == 'subchtt':
         if quert_split[1] == 'on':
-            function = 'changes_tt.on_subscribe'
+            function = changes_tt.on_subscribe
         elif quert_split[1] == 'off':
-            function = 'changes_tt.off_subscribe'
+            function = changes_tt.off_subscribe
     elif quert_split[0] == 'delchtt':
         if len(quert_split) == 2:
-            function = 'changes_tt.confirmation_del_changes_tt'
+            function = changes_tt.confirmation_del_changes_tt
         elif len(quert_split) == 3:
-            function = 'changes_tt.del_changes_tt'
+            function = changes_tt.del_changes_tt
     elif quert_split[0] == 'echtt':
-        function = 'changes_tt.edit_changes_tt'
+        function = changes_tt.edit_changes_tt
 
     kwargs['logger'].debug('Определена функция для обработки нажатия', extra={'function': function})
     if function:
-        modules(function, callback_query, user, bot, session, *args, **kwargs)
+        function(callback_query, user, bot, session, *args, **kwargs)
 
 
 def news_callback(callback_query, user, bot, session, *args, **kwargs):
+    import subscribe
+
     query = callback_query.data
     quert_without = query.split('$')[0]
     quert_split = quert_without.split('_')
     function = None
 
     if quert_without == 'news':
-        function = 'subscribe.call'
+        function = subscribe.call
     elif quert_split[0] == 'news' and quert_split[1] == 'on':
-        function = 'subscribe.on'
+        function = subscribe.on
     elif quert_split[0] == 'news' and quert_split[1] == 'off':
-        function = 'subscribe.off'
+        function = subscribe.off
 
     kwargs['logger'].debug('Определена функция для обработки нажатия', extra={'function': function})
     if function:
-        modules(function, callback_query, user, bot, session, *args, **kwargs)
+        function(callback_query, user, bot, session, *args, **kwargs)
 
 
 def help_callback(callback_query, user, bot, session, *args, **kwargs):
+    import helper
+
     query = callback_query.data
     quert_without = query.split('$')[0]
     quert_split = quert_without.split('_')
     function = None
 
     if quert_without == 'hlp':
-        function = 'helper.get_help'
+        function = helper.get_help
 
     kwargs['logger'].debug('Определена функция для обработки нажатия', extra={'function': function})
     if function:
-        modules(function, callback_query, user, bot, session, *args, **kwargs)
+        function(callback_query, user, bot, session, *args, **kwargs)
 
 
 def comm_callback(callback_query, user, bot, session, *args, **kwargs):
+    import communication
+
     query = callback_query.data
     quert_without = query.split('$')[0]
     quert_split = quert_without.split('_')
     function = None
 
     if quert_without == 'fback':
-        function = 'communication.ask_feedback'
+        function = communication.ask_feedback
     elif quert_split[0] == 'afback' and len(quert_split) in (3, 4):
-        function = 'communication.get_answer_to_feedback'
+        function = communication.get_answer_to_feedback
     elif quert_split[0] == 'ans':
-        function = 'communication.get_answer_to_afback'
+        function = communication.get_answer_to_afback
     elif quert_without == 'wuser':
-        function = 'communication.ask_id_to_write'
+        function = communication.ask_id_to_write
     elif quert_split[0] == 'swuser' and len(quert_split) == 2:
-        function = 'communication.write_to_user'
+        function = communication.write_to_user
     elif quert_split[0] == 'wuser' and len(quert_split) == 2:
-        function = 'communication.another_message_to_user'
+        function = communication.another_message_to_user
     elif quert_split[0] == 'wuser' and len(quert_split) == 3:
-        function = 'communication.confirmation_message'
+        function = communication.confirmation_message
     elif quert_split[0] == 'safback' and len(quert_split) == 3:
-        function = 'communication.answer_to_feedback'
+        function = communication.answer_to_feedback
     elif quert_without == 'wusers':
-        function = 'communication.ask_text_to_users'
+        function = communication.ask_text_to_users
     elif quert_split[0] == 'wusers' and quert_split[1].isdigit():
-        function = 'communication.confirmation_message_to_users'
+        function = communication.confirmation_message_to_users
     elif quert_split[0] == 'chbtn':
-        function = 'communication.choose_btn'
+        function = communication.choose_btn
     elif quert_split[0] == 'rwusers':
-        function = 'communication.reask_btns_to_users'
+        function = communication.reask_btns_to_users
     elif quert_split[0] == 'rwuser':
-        function = 'communication.reask_btns_to_user'
+        function = communication.reask_btns_to_user
     elif quert_split[0] == 'swadms':
-        function = 'communication.send_message_to_admins'
+        function = communication.send_message_to_admins
     elif quert_split[0] == 'swusers':
-        function = 'communication.send_message_to_users'
+        function = communication.send_message_to_users
 
     kwargs['logger'].debug('Определена функция для обработки нажатия', extra={'function': function})
     if function:
-        modules(function, callback_query, user, bot, session, *args, **kwargs)
+        function(callback_query, user, bot, session, *args, **kwargs)
 
 
 def users_callback(callback_query, user, bot, session, *args, **kwargs):
+    import statistics
+    import users
+
     query = callback_query.data
     quert_without = query.split('$')[0]
     quert_split = quert_without.split('_')
     function = None
 
     if quert_without == 'users':
-        function = 'users.call'
+        function = users.call
     elif quert_without == 'cntusers':
-        function = 'users.count_users'
+        function = users.count_users
     elif quert_without == 'aboutuser':
-        function = 'users.user_id_for_about'
+        function = users.user_id_for_about
     elif quert_without == 'userphoto':
-        function = 'users.get_user_photos'
+        function = users.get_user_photos
     elif quert_without == 'stat':
-        function = 'statistics.call'
+        function = statistics.call
 
     kwargs['logger'].debug('Определена функция для обработки нажатия', extra={'function': function})
     if function:
-        modules(function, callback_query, user, bot, session, *args, **kwargs)
+        function(callback_query, user, bot, session, *args, **kwargs)
 
 
 def pay_callback(callback_query, user, bot, session, *args, **kwargs):
+    import pay
+
     query = callback_query.data
     quert_without = query.split('$')[0]
     quert_split = quert_without.split('_')
     function = None
 
     if quert_without == 'pay':
-        function = 'pay.call'
+        function = pay.call
     elif quert_split[0] == 'pay':
-        function = 'pay.create_order'
+        function = pay.create_order
 
     kwargs['logger'].debug('Определена функция для обработки нажатия', extra={'function': function})
     if function:
-        modules(function, callback_query, user, bot, session, *args, **kwargs)
+        function(callback_query, user, bot, session, *args, **kwargs)
 
 
 def modules(function, m, user, bot, session, *args, **kwargs):
