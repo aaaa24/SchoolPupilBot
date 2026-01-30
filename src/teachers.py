@@ -593,13 +593,16 @@ def invitation_to_add_subjects_and_classes(m, user, bot, session, *args, **kwarg
 
 
 def foto_timetable(m, user, bot, session, *args, **kwargs):
-    file_id1 = 'AgACAgIAAxkBAAEKq2tpIIb4srdNJqu7Q-PzQi4nA2G-WgACPAxrG1FtCEk-c8x52SDEVwEAAwIAA3kAAzYE'
-    file_id2 = 'AgACAgIAAxkBAAEKq21pIIdA_vz8Fz5kgBgbe62JBlGy2QACPgxrG1FtCEn2f3iMQQ1_nQEAAwIAA3kAAzYE'
-    file_id3 = 'AgACAgIAAxkBAAEKq29pIIdcgVKCR0H1cCfaAAEYOufyVw4AAkAMaxtRbQhJF9FW20uTSWUBAAMCAAN5AAM2BA'
+    request = session.transaction().execute(
+        'SELECT file_id, seq_number FROM foto_timetable WHERE is_active = true ORDER BY seq_number',
+        commit_tx=True,
+        settings=ydb.BaseRequestSettings().with_timeout(3).with_operation_timeout(2)
+    )
+    file_ids = [t['file_id'] for t in request[0].rows]
 
     text = 'Расписание учителей'
 
-    media = [types.InputMediaPhoto(ph) for ph in (file_id1, file_id2, file_id3)]
+    media = [types.InputMediaPhoto(ph) for ph in file_ids]
 
     back = get_back_button(m.message.reply_markup.keyboard, 'listtttea')
     back += '$new'
