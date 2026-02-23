@@ -1,7 +1,8 @@
 from telebot import types
 
-from utils import create_inline_kb, send_text, edit_level
 from constants import Phrase
+from messenger_context import get_messenger_from_kwargs, get_users_table
+from utils import create_inline_kb, send_text, edit_level
 
 
 def cancel(m, user, bot, session, *args, **kwargs):
@@ -53,7 +54,7 @@ def is_send_news(m, user, bot, session, *args, **kwargs):
     import ydb
 
     request = session.transaction().execute(
-        f'UPSERT INTO users (id, send_news) VALUES ({m.json["from"]["id"]}, {not user["send_news"]});',
+        f'UPSERT INTO {get_users_table(get_messenger_from_kwargs(kwargs))} (id, send_news) VALUES ({m.json["from"]["id"]}, {not user["send_news"]});',
         commit_tx=True,
         settings=ydb.BaseRequestSettings().with_timeout(3).with_operation_timeout(2)
     )
