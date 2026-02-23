@@ -13,10 +13,12 @@ pip install -r local/requirements.txt
 - **localtunnel**: `lt --port 8080`
 - или использовать другой аналогичный сервис
 
-### 4. Настроить вызовы webhook в Telegram:
-```bash
-curl https://api.telegram.org/bot<token>/setWebhook?url=https://<url>/webhook
-```
+### 4. Настроить вызовы webhook:
+
+- **Telegram**:
+  ```bash
+  curl https://api.telegram.org/bot<token>/setWebhook?url=https://<url>/telegram
+  ```
 
 ### 5. Установить переменную окружения `PYTHONPATH=src`:
 

@@ -1,8 +1,8 @@
 import ydb
 from telebot import types
 
-from utils import send_text, edit_level
 from constants import Phrase
+from utils import send_text, edit_level
 
 
 def class_teachers(m, user, bot, session, *args, **kwargs):

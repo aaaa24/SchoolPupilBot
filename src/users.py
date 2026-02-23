@@ -1,8 +1,9 @@
 import ydb
 from telebot import types
 
-from utils import send_text, edit_level
 from constants import Phrase, months
+from messenger_context import get_messenger_from_kwargs, get_users_table
+from utils import send_text, edit_level
 
 
 def get_user_photos(m, user, bot, session, *args, **kwargs):
@@ -52,7 +53,7 @@ def about_user(m, user, bot, session, *args, **kwargs):
             admin, send_news, send_changes_tt = None, None, None
             if user_info.type == 'private':
                 result = session.transaction().execute(
-                    f'SELECT * FROM users WHERE id = {user_id}',
+                    f'SELECT * FROM {get_users_table(get_messenger_from_kwargs(kwargs))} WHERE id = {user_id}',
                     commit_tx=True,
                     settings=ydb.BaseRequestSettings().with_timeout(3).with_operation_timeout(2)
                 )
@@ -154,7 +155,7 @@ def call(m, user, bot, session, *args, **kwargs):
 
 def count_users(m, user, bot, session, *args, **kwargs):
     result = session.transaction().execute(
-        f'SELECT COUNT(*) AS count FROM users',
+        f'SELECT COUNT(*) AS count FROM {get_users_table(get_messenger_from_kwargs(kwargs))}',
         commit_tx=True,
         settings=ydb.BaseRequestSettings().with_timeout(3).with_operation_timeout(2)
     )
