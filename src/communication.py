@@ -3,6 +3,7 @@ import re
 from telebot import types
 
 from constants import Phrase
+from messenger_context import get_messenger_from_kwargs, get_users_table
 from utils import edit_level, find_callback_data, send_text
 
 
@@ -95,7 +96,7 @@ def send_message_to_admins(m, user, bot, session, *args, **kwargs):
     i = 0
     users = []
     while True:
-        request = f'SELECT id FROM users WHERE admin = true AND id > {user_id} LIMIT {batch_size} OFFSET {i};'
+        request = f'SELECT id FROM {get_users_table(get_messenger_from_kwargs(kwargs))} WHERE admin = true AND id > {user_id} LIMIT {batch_size} OFFSET {i};'
         new_users = get_users(m, user, bot, session, *args, request=request, **kwargs)
         if not new_users:
             break
@@ -110,7 +111,7 @@ def send_message_to_users(m, user, bot, session, *args, **kwargs):
     i = 0
     users = []
     while True:
-        request = f'SELECT id FROM users WHERE id > {user_id} LIMIT {batch_size} OFFSET {i};'
+        request = f'SELECT id FROM {get_users_table(get_messenger_from_kwargs(kwargs))} WHERE id > {user_id} LIMIT {batch_size} OFFSET {i};'
         new_users = get_users(m, user, bot, session, *args, request=request, **kwargs)
         if not new_users:
             break

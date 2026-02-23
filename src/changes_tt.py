@@ -4,6 +4,8 @@ from re import search
 import ydb
 from telebot import types
 
+from messenger_context import get_messenger_from_kwargs, get_users_table
+
 import constants
 from constants import Phrase
 from utils import send_text, edit_level
@@ -129,7 +131,7 @@ def mailing_changes_tt(bot, session, logger, *args, **kwargs):
         inline_kb = types.InlineKeyboardMarkup(row_width=1).add(*inline_buttons)
 
         request = session.transaction().execute(
-            f'SELECT id FROM users WHERE send_changes_tt = true;',
+            f'SELECT id FROM {get_users_table(get_messenger_from_kwargs(kwargs))} WHERE send_changes_tt = true;',
             commit_tx=True,
             settings=ydb.BaseRequestSettings().with_timeout(3).with_operation_timeout(2)
         )
@@ -190,7 +192,7 @@ def on_subscribe(m, user, bot, session, *args, **kwargs):
                                                   text='. Изменения будут приходить в 20:00 или в 08:00 в зависимости от того, когда они были загружены')
     else:
         request = session.transaction().execute(
-            f'UPSERT INTO users (id, send_changes_tt) VALUES ({user["id"]}, True);',
+            f'UPSERT INTO {get_users_table(get_messenger_from_kwargs(kwargs))} (id, send_changes_tt) VALUES ({user["id"]}, True);',
             commit_tx=True,
             settings=ydb.BaseRequestSettings().with_timeout(3).with_operation_timeout(2)
         )
@@ -210,7 +212,7 @@ def off_subscribe(m, user, bot, session, *args, **kwargs):
         text = Phrase.SUBSCRIBE_CHANGES_TT.format(onoff='❌', subscr='уже отписаны от рассылки', text='')
     else:
         request = session.transaction().execute(
-            f'UPSERT INTO users (id, send_changes_tt) VALUES ({user["id"]}, False);',
+            f'UPSERT INTO {get_users_table(get_messenger_from_kwargs(kwargs))} (id, send_changes_tt) VALUES ({user["id"]}, False);',
             commit_tx=True,
             settings=ydb.BaseRequestSettings().with_timeout(3).with_operation_timeout(2)
         )

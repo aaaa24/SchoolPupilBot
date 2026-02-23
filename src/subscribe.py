@@ -1,6 +1,7 @@
 import ydb
 from telebot import types
 
+from messenger_context import get_messenger_from_kwargs, get_users_table
 from utils import send_text, edit_level
 from constants import Phrase
 
@@ -28,7 +29,7 @@ def on(m, user, bot, session, *args, **kwargs):
         text = Phrase.STATUS_SUBSCR.format(onoff='✅', subscr='уже подписаны на рассылку', endstatus='')
     else:
         request = session.transaction().execute(
-            f'UPSERT INTO users (id, send_news) VALUES ({m.json["from"]["id"]}, True);',
+            f'UPSERT INTO {get_users_table(get_messenger_from_kwargs(kwargs))} (id, send_news) VALUES ({m.json["from"]["id"]}, True);',
             commit_tx=True,
             settings=ydb.BaseRequestSettings().with_timeout(3).with_operation_timeout(2)
         )
@@ -46,7 +47,7 @@ def off(m, user, bot, session, *args, **kwargs):
         text = Phrase.STATUS_SUBSCR.format(onoff='❌', subscr='уже отписаны от рассылки', endstatus='')
     else:
         request = session.transaction().execute(
-            f'UPSERT INTO users (id, send_news) VALUES ({m.json["from"]["id"]}, False);',
+            f'UPSERT INTO {get_users_table(get_messenger_from_kwargs(kwargs))} (id, send_news) VALUES ({m.json["from"]["id"]}, False);',
             commit_tx=True,
             settings=ydb.BaseRequestSettings().with_timeout(3).with_operation_timeout(2)
         )

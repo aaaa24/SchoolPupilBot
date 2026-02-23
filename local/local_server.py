@@ -12,7 +12,8 @@ from index import handler
 app = Flask(__name__)
 
 
-@app.route('/webhook', methods=['POST'])
+@app.route('/telegram', methods=['POST'])
+@app.route('/max', methods=['POST'])
 def webhook():
     body_str = request.get_data(as_text=True)
 
@@ -45,7 +46,7 @@ def webhook():
         },
         'body': body_str,
         'isBase64Encoded': False,
-        'path': '/'
+        'path': request.path
     }
 
     for key, value in event['headers'].items():

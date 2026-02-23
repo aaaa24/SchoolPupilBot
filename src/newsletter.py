@@ -7,6 +7,8 @@ import telebot
 import ydb
 from telebot import types
 
+from messenger_context import get_messenger_from_kwargs, get_users_table
+
 
 def except_429(f, n=1, **k):
     print(429, n)
@@ -115,7 +117,7 @@ def send_newsletter():
     bot = telebot.TeleBot(os.getenv('BOT_TOKEN'))
 
     result = session.transaction().execute(
-        f'SELECT * FROM users WHERE send_news = true;',
+        f'SELECT * FROM {get_users_table(get_messenger_from_kwargs(kwargs))} WHERE send_news = true;',
         commit_tx=True,
         settings=ydb.BaseRequestSettings().with_timeout(3).with_operation_timeout(2)
     )

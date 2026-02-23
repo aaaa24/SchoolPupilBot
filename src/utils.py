@@ -2,6 +2,8 @@ import time
 
 from telebot import types, apihelper
 
+from messenger_context import get_messenger_from_kwargs, get_users_table
+
 
 def get_inline_button(button):
     if len(button) == 3 and button[2] == 'url':
@@ -75,7 +77,7 @@ def send_text(bot, m, text, inline_kb, new_message=False, **kwargs):
     return bot.send_message(m.chat.id, text, reply_markup=inline_kb, **kwargs)
 
 
-def edit_level(m, level, session):
+def edit_level(m, level, session, messenger='telegram'):
     import ydb
     if hasattr(m, 'from_user'):
         user_id = m.from_user.id
@@ -86,8 +88,9 @@ def edit_level(m, level, session):
             user_id = m.json['from']['id']
     if user_id < 0:
         return False
+    users_table = get_users_table(messenger)
     request = session.transaction().execute(
-        f'UPSERT INTO users (id, level) VALUES ({user_id}, "{level}");',
+        f'UPSERT INTO {users_table} (id, level) VALUES ({user_id}, "{level}");',
         commit_tx=True,
         settings=ydb.BaseRequestSettings().with_timeout(3).with_operation_timeout(2)
     )
