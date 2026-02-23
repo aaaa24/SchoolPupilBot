@@ -2,8 +2,17 @@ from json import dumps, loads
 
 import telebot
 
-from main import bot, logger, process_command_message, process_text_message, set_connect
-from messengers import MaxMessengerClient, MessengerChat, MessengerUser, UnifiedMessage
+from main import bot, logger, process_command_message, process_text_message, set_connect, user_verif
+from messengers import (
+    MaxMessengerClient,
+    MessengerChat,
+    MessengerUser,
+    UnifiedCallbackMessage,
+    UnifiedCallbackQuery,
+    UnifiedMessage,
+    max_keyboard_to_markup,
+)
+from router import callback_handling
 
 
 def _is_command(text):
@@ -33,6 +42,41 @@ def _parse_max_update(payload, context):
             username=sender.get('username'),
         )
         return UnifiedMessage(user=user, chat=MessengerChat(id=int(chat_id)), text=text, context=context)
+
+    if update_type == 'message_callback':
+        callback = payload.get('callback', {}) or {}
+        callback_id = callback.get('callback_id')
+        callback_payload = callback.get('payload')
+        message = payload.get('message', {}) or {}
+        callback_user = callback.get('user', {}) or {}
+        recipient = message.get('recipient', {}) or {}
+        body = message.get('body', {}) or {}
+
+        user_id = callback_user.get('user_id')
+        chat_id = recipient.get('chat_id') or recipient.get('user_id')
+        if callback_id is None or callback_payload is None or user_id is None or chat_id is None:
+            return None
+
+        user = MessengerUser(
+            id=int(user_id),
+            first_name=callback_user.get('first_name', callback_user.get('name', 'Пользователь')),
+            last_name=callback_user.get('last_name'),
+            username=callback_user.get('username'),
+        )
+        callback_message = UnifiedCallbackMessage(
+            user=user,
+            chat=MessengerChat(id=int(chat_id)),
+            text=body.get('text') or '',
+            message_id=body.get('mid'),
+            reply_markup=max_keyboard_to_markup(body.get('attachments')),
+        )
+        return UnifiedCallbackQuery(
+            id=str(callback_id),
+            user=user,
+            data=str(callback_payload),
+            message=callback_message,
+            context=context,
+        )
 
     if update_type == 'bot_started':
         user_data = payload.get('user', {})
@@ -75,7 +119,16 @@ def handler(event, context):
             max_message = _parse_max_update(payload, context)
             if max_message is not None:
                 max_client = MaxMessengerClient()
-                if _is_command(max_message.text):
+                if hasattr(max_message, 'data'):
+                    session, number_attempts = set_connect(1000)
+                    if session is not None:
+                        max_client.begin_callback(max_message.id)
+                        user = user_verif(max_message, session, messenger='max')
+                        callback_handling(max_message, user, max_client, session, logger=logger,
+                                          context=max_message.context, messenger='max')
+                        max_client.answer_callback_query(max_message.id)
+                        session.closing()
+                elif _is_command(max_message.text):
                     process_command_message(max_message, max_client, messenger='max')
                 else:
                     process_text_message(max_message, max_client, messenger='max')

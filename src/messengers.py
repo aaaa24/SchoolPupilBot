@@ -67,6 +67,10 @@ class MaxMessengerClient(BaseMessengerClient):
     def __init__(self):
         self.base_url = os.getenv('MAX_API_BASE_URL', 'https://platform-api.max.ru')
         self.token = os.getenv('MAX_BOT_TOKEN')
+        self._me_id = None
+        self._active_callback_id = None
+        self._callback_answered = False
+        self._pending_callback_message = None
 
     def _request(self, method: str, path: str, **kwargs):
         if not self.token:
@@ -76,8 +80,65 @@ class MaxMessengerClient(BaseMessengerClient):
         headers['Authorization'] = self.token
         return requests.request(method, f'{self.base_url}{path}', headers=headers, timeout=5, **kwargs)
 
+    def _build_attachments(self, reply_markup):
+        if reply_markup is None:
+            return None
+
+        keyboard = []
+        for row in getattr(reply_markup, 'keyboard', []):
+            max_row = []
+            for button in row:
+                if getattr(button, 'url', None):
+                    max_row.append({'type': 'link', 'text': button.text, 'url': button.url})
+                elif getattr(button, 'callback_data', None) is not None:
+                    max_row.append({'type': 'callback', 'text': button.text, 'payload': button.callback_data})
+            if max_row:
+                keyboard.append(max_row)
+
+        if not keyboard:
+            return []
+
+        return [{'type': 'inline_keyboard', 'payload': {'buttons': keyboard}}]
+
+    def _build_message_body(self, text: Optional[str] = None, **kwargs):
+        body = {}
+        if text is not None:
+            body['text'] = text
+
+        attachments = self._build_attachments(kwargs.get('reply_markup'))
+        if attachments is not None:
+            body['attachments'] = attachments
+
+        parse_mode = kwargs.get('parse_mode')
+        if parse_mode:
+            parse_mode = parse_mode.lower()
+            if parse_mode in ('markdown', 'markdownv2'):
+                body['format'] = 'markdown'
+            elif parse_mode == 'html':
+                body['format'] = 'html'
+
+        return body
+
+    def begin_callback(self, callback_id: str):
+        self._active_callback_id = callback_id
+        self._callback_answered = False
+        self._pending_callback_message = {}
+
+    def _enqueue_callback_message(self, message_body):
+        if not self._active_callback_id or self._callback_answered:
+            return False
+
+        if self._pending_callback_message is None:
+            self._pending_callback_message = {}
+
+        for key in ('text', 'attachments', 'format'):
+            if key in message_body:
+                self._pending_callback_message[key] = message_body[key]
+
+        return True
+
     def send_message(self, chat_id: int, text: str, **kwargs):
-        payload = {'text': text}
+        payload = self._build_message_body(text=text, **kwargs)
         response = self._request(
             'POST',
             '/messages',
@@ -88,27 +149,84 @@ class MaxMessengerClient(BaseMessengerClient):
         response.raise_for_status()
         return response.json()
 
-    def answer_callback_query(self, callback_query_id: str, **kwargs):
-        if not callback_query_id:
-            return None
+    def edit_message_text(self, text, chat_id, message_id, **kwargs):
+        payload = self._build_message_body(text=text, **kwargs)
+        if self._enqueue_callback_message(payload):
+            return {'success': True}
 
-        body = {}
-        if 'notification' in kwargs:
-            body['notification'] = kwargs['notification']
         response = self._request(
-            'POST',
-            '/answers',
-            params={'callback_id': callback_query_id},
+            'PUT',
+            '/messages',
+            params={'message_id': message_id},
             headers={'Content-Type': 'application/json'},
-            json=body,
+            json=payload,
         )
         response.raise_for_status()
         return response.json()
 
+    def edit_message_reply_markup(self, chat_id, message_id, reply_markup=None, **kwargs):
+        payload = {'attachments': self._build_attachments(reply_markup) or []}
+        if self._enqueue_callback_message(payload):
+            return {'success': True}
+
+        response = self._request(
+            'PUT',
+            '/messages',
+            params={'message_id': message_id},
+            headers={'Content-Type': 'application/json'},
+            json=payload,
+        )
+        response.raise_for_status()
+        return response.json()
+
+    def delete_message(self, chat_id, message_id):
+        response = self._request('DELETE', '/messages', params={'message_id': message_id})
+        response.raise_for_status()
+        return response.json()
+
+    def send_photo(self, chat_id, photo, caption=None, **kwargs):
+        text = caption or ''
+        return self.send_message(chat_id, text, **kwargs)
+
+    def answer_callback_query(self, callback_query_id: str, **kwargs):
+        callback_id = callback_query_id or self._active_callback_id
+        if not callback_id:
+            return None
+
+        body = {}
+        if self._pending_callback_message:
+            body['message'] = self._pending_callback_message
+        if 'notification' in kwargs and kwargs['notification'] is not None:
+            body['notification'] = kwargs['notification']
+        if 'text' in kwargs and kwargs['text'] is not None:
+            body['notification'] = kwargs['text']
+
+        if not body:
+            return None
+
+        response = self._request(
+            'POST',
+            '/answers',
+            params={'callback_id': callback_id},
+            headers={'Content-Type': 'application/json'},
+            json=body,
+        )
+        response.raise_for_status()
+        self._callback_answered = True
+        self._pending_callback_message = None
+        return response.json()
+
     def get_me_id(self) -> int:
+        if self._me_id is not None:
+            return self._me_id
+
         response = self._request('GET', '/me')
         response.raise_for_status()
-        return int(response.json()['user_id'])
+        self._me_id = int(response.json()['user_id'])
+        return self._me_id
+
+    def get_me(self):
+        return AttrDict(id=self.get_me_id())
 
     def get_chat(self, chat_id: int):
         return type('Chat', (), {'id': chat_id, 'has_private_forwards': True})
@@ -146,3 +264,88 @@ class UnifiedMessage:
                 'is_bot': False,
             }
         }
+
+
+class UnifiedInlineKeyboardButton:
+    def __init__(self, text, callback_data=None, url=None):
+        self.text = text
+        self.callback_data = callback_data
+        self.url = url
+
+
+class UnifiedInlineKeyboardMarkup:
+    def __init__(self, keyboard):
+        self.keyboard = keyboard
+
+
+class UnifiedCallbackMessage:
+    def __init__(self, *, user: MessengerUser, chat: MessengerChat, text: str, message_id: Optional[str],
+                 reply_markup=None):
+        self.from_user = AttrDict(
+            id=user.id,
+            first_name=user.first_name,
+            last_name=user.last_name,
+            username=user.username,
+        )
+        self.chat = AttrDict(id=chat.id, type=chat.type)
+        self.text = text
+        self.caption = None
+        self.content_type = 'text'
+        self.photo = None
+        self.message_id = message_id
+        self.id = message_id
+        self.reply_markup = reply_markup
+
+
+class UnifiedCallbackQuery:
+    def __init__(self, *, id: str, user: MessengerUser, data: str, message: UnifiedCallbackMessage,
+                 context: Any = None):
+        self.id = id
+        self.from_user = AttrDict(
+            id=user.id,
+            first_name=user.first_name,
+            last_name=user.last_name,
+            username=user.username,
+        )
+        self.data = data
+        self.message = message
+        self.context = context
+        self.json = {
+            'from': {
+                'id': user.id,
+                'first_name': user.first_name,
+                'last_name': user.last_name,
+                'username': user.username,
+                'is_bot': False,
+            }
+        }
+
+
+def max_keyboard_to_markup(attachments):
+    if not attachments:
+        return None
+
+    keyboard_attachment = None
+    for attachment in attachments:
+        if attachment.get('type') == 'inline_keyboard':
+            keyboard_attachment = attachment
+            break
+
+    if keyboard_attachment is None:
+        return None
+
+    buttons = keyboard_attachment.get('payload', {}).get('buttons', [])
+    rows = []
+    for row in buttons:
+        row_buttons = []
+        for button in row:
+            if button.get('type') == 'link':
+                row_buttons.append(UnifiedInlineKeyboardButton(button.get('text', ''), url=button.get('url')))
+            elif button.get('type') == 'callback':
+                row_buttons.append(
+                    UnifiedInlineKeyboardButton(button.get('text', ''), callback_data=button.get('payload', ''))
+                )
+        if row_buttons:
+            rows.append(row_buttons)
+
+    return UnifiedInlineKeyboardMarkup(rows) if rows else None
