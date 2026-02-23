@@ -3,28 +3,67 @@ from time import time
 t0 = time()
 
 import logging
+import os
+
 from pythonjsonlogger import jsonlogger
 
 
 class YcLoggingFormatter(jsonlogger.JsonFormatter):
     def add_fields(self, log_record, record, message_dict):
         super(YcLoggingFormatter, self).add_fields(log_record, record, message_dict)
-        log_record['level'] = str.replace(str.replace(record.levelname, "WARNING", "WARN"), "CRITICAL", "FATAL")
+        log_record['level'] = str.replace(str.replace(record.levelname, 'WARNING', 'WARN'), 'CRITICAL', 'FATAL')
+
+
+class LocalLoggingFormatter(logging.Formatter):
+    def format(self, record):
+        timestamp = self.formatTime(record, self.datefmt)
+        parts = [f'[{timestamp}]', f'[{record.levelname}]', record.getMessage()]
+
+        default_keys = {
+            'name', 'msg', 'args', 'levelname', 'levelno', 'pathname', 'filename', 'module',
+            'exc_info', 'exc_text', 'stack_info', 'lineno', 'funcName', 'created', 'msecs',
+            'relativeCreated', 'thread', 'threadName', 'processName', 'process', 'message',
+            'asctime', 'taskName'
+        }
+        extra_fields = {
+            key: value for key, value in record.__dict__.items()
+            if key not in default_keys and not key.startswith('_')
+        }
+        if extra_fields:
+            parts.append(f'extra={extra_fields}')
+
+        if record.exc_info:
+            parts.append(self.formatException(record.exc_info))
+
+        return ' '.join(parts)
+
+
+def get_logging_mode():
+    mode = os.getenv('LOG_MODE', 'cloud')
+    if mode not in ('cloud', 'local'):
+        raise ValueError('Unknown LOG_MODE')
+    return mode
+
+
+def build_log_formatter(logging_mode):
+    if logging_mode == 'local':
+        return LocalLoggingFormatter(datefmt='%Y-%m-%d %H:%M:%S')
+
+    return YcLoggingFormatter('%(message)s %(level)s', json_ensure_ascii=False)
 
 
 logHandler = logging.StreamHandler()
-logHandler.setFormatter(YcLoggingFormatter('%(message)s %(level)s'))
+logging_mode = get_logging_mode()
+logHandler.setFormatter(build_log_formatter(logging_mode))
 
 logger = logging.getLogger('schoolpupil')
 logger.propagate = False
 logger.addHandler(logHandler)
 logger.setLevel(logging.DEBUG)
 
-logger.debug('Создан logger', extra={'time_since_launch': time() - t0})
+logger.debug('Создан logger', extra={'time_since_launch': time() - t0, 'log_mode': logging_mode})
 
 t1 = time()
-
-import os
 
 from telebot import TeleBot
 import ydb
@@ -37,7 +76,7 @@ from router import text_handling, callback_handling, commands, list_func, admin_
 logger.debug('Завершён импорт', extra={'time_since_launch': time() - t0, 'duration': time() - t1})
 
 t1 = time()
-bot = TeleBot(os.getenv('BOT_TOKEN'))
+bot = TeleBot(os.getenv('TELEGRAM_BOT_TOKEN'))
 telegram_client = TelegramMessengerClient(bot)
 
 driver = db.create_driver()
