@@ -1,7 +1,7 @@
 from telebot import types
 
-from utils import send_text, edit_level
 from constants import Phrase
+from utils import send_text, edit_level
 
 
 def get_help(m, user, bot, session, *args, **kwargs):

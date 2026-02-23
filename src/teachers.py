@@ -4,8 +4,8 @@ import ydb
 from telebot import types
 
 import constants
-from utils import send_text, edit_level
 from constants import Phrase
+from utils import send_text, edit_level
 
 clear_symbols = lambda s: re.sub(r'[\.\-" 0-9\(\)\\/\:]+', '', s.lower())
 limit_teachers = 15

@@ -4,6 +4,7 @@ import changes_tt
 import classes
 import cmd_recognition
 import communication
+import constants
 import handlers
 import helper
 import pay
@@ -12,7 +13,6 @@ import subscribe
 import teachers
 import timetable
 import users
-import constants
 from constants import Phrase
 
 
