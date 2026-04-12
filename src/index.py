@@ -2,7 +2,7 @@ from json import dumps, loads
 
 import telebot
 
-from main import bot, logger, process_command_message, process_text_message, set_connect, user_verif
+from main import bot, logger, process_max_callback, process_command_message, process_text_message, set_connect
 from messengers import (
     MaxMessengerClient,
     MessengerChat,
@@ -12,7 +12,6 @@ from messengers import (
     UnifiedMessage,
     max_keyboard_to_markup,
 )
-from router import callback_handling
 
 
 def _is_command(text):
@@ -120,14 +119,7 @@ def handler(event, context):
             if max_message is not None:
                 max_client = MaxMessengerClient()
                 if hasattr(max_message, 'data'):
-                    session, number_attempts = set_connect(1000)
-                    if session is not None:
-                        max_client.begin_callback(max_message.id)
-                        user = user_verif(max_message, session, messenger='max')
-                        callback_handling(max_message, user, max_client, session, logger=logger,
-                                          context=max_message.context, messenger='max')
-                        max_client.answer_callback_query(max_message.id)
-                        session.closing()
+                    process_max_callback(max_message, max_client)
                 elif _is_command(max_message.text):
                     process_command_message(max_message, max_client, messenger='max')
                 else:
