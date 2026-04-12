@@ -1,7 +1,7 @@
 from telebot import types
 
 from constants import Phrase
-from messenger_context import get_messenger_from_kwargs, get_users_table
+from messenger_context import get_messenger_from_kwargs, get_nice_name_of_messenger_from_kwargs, get_users_table
 from utils import create_inline_kb, send_text, edit_level
 
 
@@ -18,7 +18,7 @@ def cancel(m, user, bot, session, *args, **kwargs):
 
 
 def info(m, user, bot, session, *args, **kwargs):
-    text = Phrase.BOT_INFO
+    text = Phrase.BOT_INFO.format(messenger=get_nice_name_of_messenger_from_kwargs(kwargs))
 
     inline_kb = types.InlineKeyboardMarkup()
     inline_kb.row(types.InlineKeyboardButton('💬 Обратная связь', callback_data='fback'))
@@ -46,7 +46,7 @@ def auth_user(m, user, bot, session, *args, **kwargs):
         list_inline_btn.append(('👥 Пользователи', 'users'))
     inline_kb = create_inline_kb(list_inline_btn)
 
-    send_text(bot, m, Phrase.START, inline_kb)
+    send_text(bot, m, Phrase.START.format(messenger=get_nice_name_of_messenger_from_kwargs(kwargs)), inline_kb)
     edit_level(m, 'menu', session)
 
 
