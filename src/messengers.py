@@ -71,6 +71,7 @@ class MaxMessengerClient(BaseMessengerClient):
         self._active_callback_id = None
         self._callback_answered = False
         self._pending_callback_message = None
+        self._pending_callback_notification = None
 
     def _request(self, method: str, path: str, **kwargs):
         if not self.token:
@@ -119,10 +120,15 @@ class MaxMessengerClient(BaseMessengerClient):
 
         return body
 
-    def begin_callback(self, callback_id: str):
+    def begin_callback(self, callback_id: str, reply_markup=None):
         self._active_callback_id = callback_id
         self._callback_answered = False
         self._pending_callback_message = {}
+        self._pending_callback_notification = None
+
+        attachments = self._build_attachments(reply_markup)
+        if attachments is not None:
+            self._pending_callback_message['attachments'] = attachments
 
     def _enqueue_callback_message(self, message_body):
         if not self._active_callback_id or self._callback_answered:
@@ -135,6 +141,13 @@ class MaxMessengerClient(BaseMessengerClient):
             if key in message_body:
                 self._pending_callback_message[key] = message_body[key]
 
+        return True
+
+    def _enqueue_callback_notification(self, notification: Optional[str]):
+        if not self._active_callback_id or self._callback_answered:
+            return False
+
+        self._pending_callback_notification = notification
         return True
 
     def send_message(self, chat_id: int, text: str, **kwargs):
@@ -154,30 +167,20 @@ class MaxMessengerClient(BaseMessengerClient):
         if self._enqueue_callback_message(payload):
             return {'success': True}
 
-        response = self._request(
-            'PUT',
-            '/messages',
-            params={'message_id': message_id},
-            headers={'Content-Type': 'application/json'},
-            json=payload,
-        )
-        response.raise_for_status()
-        return response.json()
+        return {
+            'success': False,
+            'message': 'Редактирование сообщений MAX возможно только через /answers в контексте callback',
+        }
 
     def edit_message_reply_markup(self, chat_id, message_id, reply_markup=None, **kwargs):
         payload = {'attachments': self._build_attachments(reply_markup) or []}
         if self._enqueue_callback_message(payload):
             return {'success': True}
 
-        response = self._request(
-            'PUT',
-            '/messages',
-            params={'message_id': message_id},
-            headers={'Content-Type': 'application/json'},
-            json=payload,
-        )
-        response.raise_for_status()
-        return response.json()
+        return {
+            'success': False,
+            'message': 'Редактирование клавиатуры MAX доступно только в контексте callback через /answers',
+        }
 
     def delete_message(self, chat_id, message_id):
         response = self._request('DELETE', '/messages', params={'message_id': message_id})
@@ -193,16 +196,15 @@ class MaxMessengerClient(BaseMessengerClient):
         if not callback_id:
             return None
 
+        notification = kwargs.get('notification')
+        if notification is not None:
+            self._enqueue_callback_notification(notification)
+
         body = {}
         if self._pending_callback_message:
             body['message'] = self._pending_callback_message
-        if 'notification' in kwargs and kwargs['notification'] is not None:
-            body['notification'] = kwargs['notification']
-        if 'text' in kwargs and kwargs['text'] is not None:
-            body['notification'] = kwargs['text']
-
-        if not body:
-            return None
+        if self._pending_callback_notification is not None:
+            body['notification'] = self._pending_callback_notification
 
         response = self._request(
             'POST',
@@ -212,9 +214,15 @@ class MaxMessengerClient(BaseMessengerClient):
             json=body,
         )
         response.raise_for_status()
+        result = response.json()
+        if not result.get('success', False):
+            raise RuntimeError(f"Ошибка ответа на callback MAX: {result.get('message', 'неизвестная ошибка')}")
+
         self._callback_answered = True
+        self._active_callback_id = None
         self._pending_callback_message = None
-        return response.json()
+        self._pending_callback_notification = None
+        return result
 
     def get_me_id(self) -> int:
         if self._me_id is not None:

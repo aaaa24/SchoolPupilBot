@@ -153,6 +153,20 @@ def set_connect(max_number_attempts):
             return (session, number_attempts)
 
 
+def process_max_callback(max_message, max_client):
+    session, number_attempts = set_connect(1000)
+    if session is None:
+        max_client.answer_callback_query(max_message.id, notification='Ошибка. Нажмите кнопку ещё раз')
+        return
+
+    max_client.begin_callback(max_message.id, max_message.message.reply_markup)
+    user = user_verif(max_message, session, messenger='max')
+    callback_handling(max_message, user, max_client, session, logger=logger,
+                      context=max_message.context, messenger='max')
+    max_client.answer_callback_query(max_message.id)
+    session.closing()
+
+
 def process_command_message(m, bot_instance, messenger='telegram'):
     session, number_attempts = set_connect(1000)
     if session is None:
