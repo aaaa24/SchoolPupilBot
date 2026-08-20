@@ -114,10 +114,10 @@ def send_newsletter():
         print('Новых новостей нет')
         return
 
-    bot = telebot.TeleBot(os.getenv('BOT_TOKEN'))
+    bot = telebot.TeleBot(os.getenv('TELEGRAM_BOT_TOKEN'))
 
     result = session.transaction().execute(
-        f'SELECT * FROM {get_users_table(get_messenger_from_kwargs(kwargs))} WHERE send_news = true;',
+        f'SELECT * FROM {get_users_table('telegram')} WHERE send_news = true;',
         commit_tx=True,
         settings=ydb.BaseRequestSettings().with_timeout(3).with_operation_timeout(2)
     )
