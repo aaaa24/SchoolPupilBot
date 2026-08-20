@@ -54,7 +54,7 @@ jobs:
             LOG_GROUP_ID=${{ secrets.LOG_GROUP_ID }}
             VK_APP_ID=${{ secrets.VK_APP_ID }}
             YOOKASSA_ACCOUNT_ID=${{ secrets.YOOKASSA_ACCOUNT_ID }}
-            MAX_API_BASE_URL=${{ vars.MAX_API_BASE_URL }}
+            MAX_API_BASE_URL=${{ secrets.MAX_API_BASE_URL }}
             YDB_MODE=cloud
             LOG_MODE=cloud
           secrets: |
