@@ -2,7 +2,7 @@ import time
 
 from telebot import types, apihelper
 
-from messenger_context import get_users_table
+from messenger_context import get_messenger_from_m, get_users_table
 
 
 def get_inline_button(button):
@@ -77,8 +77,10 @@ def send_text(bot, m, text, inline_kb, new_message=False, **kwargs):
     return bot.send_message(m.chat.id, text, reply_markup=inline_kb, **kwargs)
 
 
-def edit_level(m, level, session, messenger='telegram'):
+def edit_level(m, level, session, messenger=None):
     import ydb
+    if messenger is None:
+        messenger = get_messenger_from_m(m)
     if hasattr(m, 'from_user'):
         user_id = m.from_user.id
     else:

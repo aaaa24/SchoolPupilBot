@@ -40,14 +40,14 @@ def text_handling(m, user, bot, session, *args, **kwargs):
 
     if list_of_short_cmds:
         command = list_of_short_cmds[0]
-        list_func[commands[command]](m, user, bot, session)
+        list_func[commands[command]](m, user, bot, session, *args, **kwargs)
         log_info['result'] = 'short_cmd'
     else:
         if user['level'].isdigit():
-            list_func[int(user['level'])](m, user, bot, session)
+            list_func[int(user['level'])](m, user, bot, session, *args, **kwargs)
             log_info['result'] = 'digit_level'
         else:
-            list_func[commands[user['level']]](m, user, bot, session)
+            list_func[commands[user['level']]](m, user, bot, session, *args, **kwargs)
             log_info['result'] = 'command_level'
 
     logger.info('Ответ пользователю отправлен', extra={'type_event': 'message', 'info': log_info})

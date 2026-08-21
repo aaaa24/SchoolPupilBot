@@ -248,6 +248,7 @@ class AttrDict:
 
 class UnifiedMessage:
     def __init__(self, *, user: MessengerUser, chat: MessengerChat, text: str, context: Any = None):
+        self.messenger = 'max'
         self.from_user = AttrDict(
             id=user.id,
             first_name=user.first_name,
@@ -289,6 +290,7 @@ class UnifiedInlineKeyboardMarkup:
 class UnifiedCallbackMessage:
     def __init__(self, *, user: MessengerUser, chat: MessengerChat, text: str, message_id: Optional[str],
                  reply_markup=None):
+        self.messenger = 'max'
         self.from_user = AttrDict(
             id=user.id,
             first_name=user.first_name,
@@ -308,6 +310,7 @@ class UnifiedCallbackMessage:
 class UnifiedCallbackQuery:
     def __init__(self, *, id: str, user: MessengerUser, data: str, message: UnifiedCallbackMessage,
                  context: Any = None):
+        self.messenger = 'max'
         self.id = id
         self.from_user = AttrDict(
             id=user.id,
