@@ -77,10 +77,9 @@ def send_text(bot, m, text, inline_kb, new_message=False, **kwargs):
     return bot.send_message(m.chat.id, text, reply_markup=inline_kb, **kwargs)
 
 
-def edit_level(m, level, session, messenger=None):
+def edit_level(m, level, session):
     import ydb
-    if messenger is None:
-        messenger = get_messenger_from_m(m)
+    messenger = get_messenger_from_m(m)
     if hasattr(m, 'from_user'):
         user_id = m.from_user.id
     else:

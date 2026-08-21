@@ -1,17 +1,20 @@
-def get_users_table(messenger='telegram'):
-    return 'users_max' if messenger == 'max' else 'users_telegram'
+from messengers import Messenger
 
 
-def get_messenger_from_m(m):
-    messenger = getattr(m, 'messenger', None)
-    return messenger or 'telegram'
+def get_users_table(messenger) -> str:
+    return Messenger(messenger).table_name
 
 
-def get_messenger_from_kwargs(kwargs):
-    messenger = kwargs.get('messenger') if isinstance(kwargs, dict) else None
-    return messenger or 'telegram'
+def get_messenger_from_m(m) -> Messenger:
+    return m.messenger
 
 
-def get_nice_name_of_messenger_from_kwargs(kwargs):
-    messenger = get_messenger_from_kwargs(kwargs)
-    return 'Telegram' if messenger == 'telegram' else 'MAX' if messenger == 'max' else messenger
+def get_messenger_from_kwargs(kwargs) -> Messenger:
+    messenger = kwargs.get('messenger')
+    if messenger is None:
+        raise ValueError('В kwargs не передан мессенджер')
+    return messenger
+
+
+def get_nice_name_of_messenger_from_kwargs(kwargs) -> str:
+    return Messenger(get_messenger_from_kwargs(kwargs)).nice_name
