@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
+from enum import Enum
 from typing import Any, Optional
 
 import requests
@@ -22,8 +23,21 @@ class MessengerChat:
     type: str = 'private'
 
 
+class Messenger(Enum):
+    TELEGRAM = 'telegram'
+    MAX = 'max'
+
+    @property
+    def nice_name(self) -> str:
+        return {'telegram': 'Telegram', 'max': 'MAX'}[self.value]
+
+    @property
+    def table_name(self) -> str:
+        return f'users_{self.value}'
+
+
 class BaseMessengerClient(ABC):
-    platform: str
+    platform: Messenger
 
     @abstractmethod
     def send_message(self, chat_id: int, text: str, **kwargs):
@@ -43,7 +57,7 @@ class BaseMessengerClient(ABC):
 
 
 class TelegramMessengerClient(BaseMessengerClient):
-    platform = 'telegram'
+    platform = Messenger.TELEGRAM
 
     def __init__(self, telebot_client):
         self._bot = telebot_client
@@ -62,7 +76,7 @@ class TelegramMessengerClient(BaseMessengerClient):
 
 
 class MaxMessengerClient(BaseMessengerClient):
-    platform = 'max'
+    platform = Messenger.MAX
 
     def __init__(self):
         self.base_url = os.getenv('MAX_API_BASE_URL', 'https://platform-api.max.ru')
@@ -247,8 +261,8 @@ class AttrDict:
 
 
 class UnifiedMessage:
-    def __init__(self, *, user: MessengerUser, chat: MessengerChat, text: str, context: Any = None):
-        self.messenger = 'max'
+    def __init__(self, *, messenger: Messenger, user: MessengerUser, chat: MessengerChat, text: str, context: Any = None):
+        self.messenger = messenger
         self.from_user = AttrDict(
             id=user.id,
             first_name=user.first_name,
@@ -288,9 +302,9 @@ class UnifiedInlineKeyboardMarkup:
 
 
 class UnifiedCallbackMessage:
-    def __init__(self, *, user: MessengerUser, chat: MessengerChat, text: str, message_id: Optional[str],
+    def __init__(self, *, messenger: Messenger, user: MessengerUser, chat: MessengerChat, text: str, message_id: Optional[str],
                  reply_markup=None):
-        self.messenger = 'max'
+        self.messenger = messenger
         self.from_user = AttrDict(
             id=user.id,
             first_name=user.first_name,
@@ -308,9 +322,9 @@ class UnifiedCallbackMessage:
 
 
 class UnifiedCallbackQuery:
-    def __init__(self, *, id: str, user: MessengerUser, data: str, message: UnifiedCallbackMessage,
+    def __init__(self, *, messenger: Messenger, id: str, user: MessengerUser, data: str, message: UnifiedCallbackMessage,
                  context: Any = None):
-        self.messenger = 'max'
+        self.messenger = messenger
         self.id = id
         self.from_user = AttrDict(
             id=user.id,

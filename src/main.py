@@ -70,7 +70,7 @@ import ydb
 
 import db
 from messenger_context import get_users_table
-from messengers import TelegramMessengerClient
+from messengers import Messenger, TelegramMessengerClient
 from router import text_handling, callback_handling, commands, list_func, admin_commands
 
 logger.debug('Завершён импорт', extra={'time_since_launch': time() - t0, 'duration': time() - t1})
@@ -85,10 +85,11 @@ driver.wait(fail_fast=True, timeout=5)
 logger.debug('Созданы bot и driver', extra={'time_since_launch': time() - t0, 'duration': time() - t1})
 
 
-def user_verif(m, session, messenger='telegram'):
+def user_verif(m, session):
     t1 = time()
     logger.debug('Запущена функция user_verif', extra={'time_since_launch': t1 - t0})
 
+    messenger = m.messenger
     user = m.json['from']
     users_table = get_users_table(messenger)
     result = session.transaction().execute(
@@ -115,7 +116,7 @@ def user_verif(m, session, messenger='telegram'):
                 text += '\n\nПереход с QR-кода в школе'
                 from_ = 'fromSchoolQR'
 
-        if messenger == 'telegram':
+        if messenger is Messenger.TELEGRAM:
             user_info = bot.get_chat(user['id'])
             user_id = f'<code>{user_info.id}</code>' if user_info.has_private_forwards else f'<a href="tg://user?id={user_info.id}">{user_info.id}</a>'
             text = text.replace(f'<code>{user["id"]}</code>', user_id)
@@ -160,20 +161,21 @@ def process_max_callback(max_message, max_client):
         return
 
     max_client.begin_callback(max_message.id, max_message.message.reply_markup)
-    user = user_verif(max_message, session, messenger='max')
+    user = user_verif(max_message, session)
     callback_handling(max_message, user, max_client, session, logger=logger,
-                      context=max_message.context, messenger='max')
+                      context=max_message.context, messenger=max_message.messenger)
     max_client.answer_callback_query(max_message.id)
     session.closing()
 
 
-def process_command_message(m, bot_instance, messenger='telegram'):
+def process_command_message(m, bot_instance):
     session, number_attempts = set_connect(1000)
     if session is None:
         bot_instance.send_message(m.chat.id, 'Произошла какая-то ошибка. Отправьте команду заново')
         return
 
-    user = user_verif(m, session, messenger=messenger)
+    messenger = m.messenger
+    user = user_verif(m, session)
 
     command = None
     if hasattr(m, 'entities') and m.entities:
@@ -194,7 +196,7 @@ def process_command_message(m, bot_instance, messenger='telegram'):
         bot_instance.send_message(m.chat.id, 'К сожалению, эта команда только для администраторов...')
         log_info['result'] = 'only_for_admins'
     elif command in commands:
-        logger.debug('Запуск функции по команде', extra={'command': command, 'messenger': messenger})
+        logger.debug('Запуск функции по команде', extra={'command': command, 'messenger': messenger.value})
         list_func[commands[command]](m, user, bot_instance, session, logger=logger, context=m.context,
                                      messenger=messenger)
         log_info['result'] = 'command'
@@ -203,10 +205,10 @@ def process_command_message(m, bot_instance, messenger='telegram'):
 
     session.closing()
     logger.info('Ответ пользователю отправлен',
-                extra={'type_event': 'command', 'info': log_info, 'messenger': messenger})
+                extra={'type_event': 'command', 'info': log_info, 'messenger': messenger.value})
 
 
-def process_text_message(m, bot_instance, messenger='telegram'):
+def process_text_message(m, bot_instance):
     if m.text is None:
         if not m.caption is None:
             m.text = m.caption
@@ -222,7 +224,8 @@ def process_text_message(m, bot_instance, messenger='telegram'):
         bot_instance.send_message(m.chat.id, 'Произошла какая-то ошибка. Отправьте сообщение заново')
         return
 
-    user = user_verif(m, session, messenger=messenger)
+    messenger = m.messenger
+    user = user_verif(m, session)
 
     text_handling(m, user, bot_instance, session, logger=logger, context=m.context, messenger=messenger)
     session.closing()
@@ -265,13 +268,13 @@ def my_id(m):
 @bot.message_handler(commands=list(commands.keys()))
 @event_decorator
 def cmd(m):
-    process_command_message(m, bot, messenger='telegram')
+    process_command_message(m, bot)
 
 
 @bot.message_handler(content_types=['text', 'photo'])
 @event_decorator
 def answer(m):
-    process_text_message(m, bot, messenger='telegram')
+    process_text_message(m, bot)
 
 
 @bot.callback_query_handler(func=lambda c: True)
@@ -283,8 +286,8 @@ def callback_inline_btn(callback_query):
         return
 
     bot.answer_callback_query(callback_query.id)
-    user = user_verif(callback_query, session, messenger='telegram')
+    user = user_verif(callback_query, session)
 
     callback_handling(callback_query, user, bot, session, logger=logger, context=callback_query.context,
-                      messenger='telegram')
+                      messenger=callback_query.messenger)
     session.closing()

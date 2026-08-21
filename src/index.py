@@ -5,6 +5,7 @@ import telebot
 from main import bot, logger, process_max_callback, process_command_message, process_text_message, set_connect
 from messengers import (
     MaxMessengerClient,
+    Messenger,
     MessengerChat,
     MessengerUser,
     UnifiedCallbackMessage,
@@ -40,7 +41,7 @@ def _parse_max_update(payload, context):
             last_name=sender.get('last_name'),
             username=sender.get('username'),
         )
-        return UnifiedMessage(user=user, chat=MessengerChat(id=int(chat_id)), text=text, context=context)
+        return UnifiedMessage(messenger=Messenger.MAX, user=user, chat=MessengerChat(id=int(chat_id)), text=text, context=context)
 
     if update_type == 'message_callback':
         callback = payload.get('callback', {}) or {}
@@ -63,6 +64,7 @@ def _parse_max_update(payload, context):
             username=callback_user.get('username'),
         )
         callback_message = UnifiedCallbackMessage(
+            messenger=Messenger.MAX,
             user=user,
             chat=MessengerChat(id=int(chat_id)),
             text=body.get('text') or '',
@@ -70,6 +72,7 @@ def _parse_max_update(payload, context):
             reply_markup=max_keyboard_to_markup(body.get('attachments')),
         )
         return UnifiedCallbackQuery(
+            messenger=Messenger.MAX,
             id=str(callback_id),
             user=user,
             data=str(callback_payload),
@@ -92,7 +95,7 @@ def _parse_max_update(payload, context):
             last_name=user_data.get('last_name'),
             username=user_data.get('username'),
         )
-        return UnifiedMessage(user=user, chat=MessengerChat(id=int(chat_id)), text=text, context=context)
+        return UnifiedMessage(messenger=Messenger.MAX, user=user, chat=MessengerChat(id=int(chat_id)), text=text, context=context)
 
     return None
 
@@ -106,8 +109,11 @@ def handler(event, context):
 
             if message.message:
                 message.message.context = context
+                message.message.messenger = Messenger.TELEGRAM
             if message.callback_query:
                 message.callback_query.context = context
+                message.callback_query.messenger = Messenger.TELEGRAM
+                message.callback_query.message.messenger = Messenger.TELEGRAM
 
             bot.process_new_updates([message])
 
@@ -121,9 +127,9 @@ def handler(event, context):
                 if hasattr(max_message, 'data'):
                     process_max_callback(max_message, max_client)
                 elif _is_command(max_message.text):
-                    process_command_message(max_message, max_client, messenger='max')
+                    process_command_message(max_message, max_client)
                 else:
-                    process_text_message(max_message, max_client, messenger='max')
+                    process_text_message(max_message, max_client)
 
         elif event['path'] == '/yookassa':
             session, _ = set_connect(50)
