@@ -56,12 +56,17 @@ jobs:
             VK_APP_ID=${{ secrets.VK_APP_ID }}
             YOOKASSA_ACCOUNT_ID=${{ secrets.YOOKASSA_ACCOUNT_ID }}
             MAX_API_BASE_URL=${{ secrets.MAX_API_BASE_URL }}
+            AWS_ACCESS_KEY_ID=${{ secrets.AWS_ACCESS_KEY_ID }}
+            AWS_REGION=${{ secrets.AWS_REGION }}
+            S3_ENDPOINT_URL=${{ secrets.S3_ENDPOINT_URL }}
+            BUCKET_NAME=${{ secrets.BUCKET_NAME }}
             YDB_MODE=cloud
             LOG_MODE=cloud
           secrets: |
             TELEGRAM_BOT_TOKEN=${{ secrets.LOCKBOX_ID }}/latest/TELEGRAM_BOT_TOKEN
             MAX_BOT_TOKEN=${{ secrets.LOCKBOX_ID }}/latest/MAX_BOT_TOKEN
             YOOKASSA_SECRET_KEY=${{ secrets.LOCKBOX_ID }}/latest/YOOKASSA_SECRET_KEY
+            AWS_SECRET_ACCESS_KEY=${{ secrets.LOCKBOX_ID }}/latest/AWS_SECRET_ACCESS_KEY
 
       - name: Deploy function (newsletter)
         uses: yc-actions/yc-sls-function@v4.1.0
