@@ -9,7 +9,7 @@ from io import BytesIO
 from typing import Any, Optional
 
 import requests
-from telebot import types
+from telebot import apihelper, types
 
 
 @dataclass
@@ -24,6 +24,50 @@ class MessengerUser:
 class MessengerChat:
     id: int
     type: str = 'private'
+
+
+@dataclass
+class ScreenState:
+    chat_id: int
+    message_id: Optional[Any] = None
+    content_type: Optional[str] = None
+
+
+@dataclass
+class MediaItem:
+    id: Optional[str] = None
+    data: Optional[bytes] = None
+    filename: Optional[str] = None
+    content_type: Optional[str] = None
+
+
+# Суффикс отмечает кнопки экрана, у которого фотографии отправлены отдельно от подписи с клавиатурой
+# (медиагруппа в Telegram). Такой экран нельзя изменить, не оторвав фотографии от подписи,
+# поэтому по нажатию его кнопок всегда отправляется новый экран
+DETACHED_SUFFIX = '$grp'
+
+
+def force_new_screen(data) -> bool:
+    if not data:
+        return False
+    return '$new' in data or '$sdel' in data or DETACHED_SUFFIX in data
+
+
+def mark_detached(reply_markup):
+    if reply_markup is None:
+        return None
+
+    marked = types.InlineKeyboardMarkup()
+    for row in reply_markup.keyboard:
+        buttons = []
+        for button in row:
+            if button.callback_data and DETACHED_SUFFIX not in button.callback_data:
+                buttons.append(types.InlineKeyboardButton(button.text,
+                                                          callback_data=button.callback_data + DETACHED_SUFFIX))
+            else:
+                buttons.append(button)
+        marked.row(*buttons)
+    return marked
 
 
 class Messenger(Enum):
@@ -68,11 +112,11 @@ class BaseMessengerClient(ABC):
         pass
 
     @abstractmethod
-    def materialize_photo(self, chat_id: int, data: bytes, filename: str, content_type: str | None = None):
+    def send_photos(self, chat_id: int, media: list[MediaItem], caption: str, reply_markup=None, **kwargs):
         pass
 
     @abstractmethod
-    def send_photos(self, chat_id: int, photos: list[str], caption: str, reply_markup=None, **kwargs):
+    def render_screen(self, state, text, media, reply_markup=None, force_new=False):
         pass
 
 
@@ -98,20 +142,50 @@ class TelegramMessengerClient(BaseMessengerClient):
         file_info = self._bot.get_file(photo.file_id)
         return self._bot.download_file(file_info.file_path), None
 
-    def materialize_photo(self, chat_id: int, data: bytes, filename: str, content_type: str | None = None):
-        photo = BytesIO(data)
-        photo.name = filename
-        message = self._bot.send_photo(chat_id, photo=photo)
-        return message.photo[-1].file_id
+    def _input_photo(self, item: MediaItem):
+        if item.id:
+            return item.id
+        stream = BytesIO(item.data)
+        stream.name = item.filename or 'photo.jpg'
+        return stream
 
-    def send_photos(self, chat_id: int, photos: list[str], caption: str, reply_markup=None, **kwargs):
-        if len(photos) == 1:
-            return self._bot.send_photo(chat_id, photo=photos[0], caption=caption, reply_markup=reply_markup, **kwargs)
+    def send_photos(self, chat_id: int, media: list[MediaItem], caption: str, reply_markup=None, **kwargs):
+        if not media:
+            return self._bot.send_message(chat_id, caption, reply_markup=reply_markup, **kwargs)
 
-        for start in range(0, len(photos), 10):
-            media = [types.InputMediaPhoto(photo) for photo in photos[start:start + 10]]
-            self._bot.send_media_group(chat_id, media)
-        return self._bot.send_message(chat_id, caption, reply_markup=reply_markup, **kwargs)
+        if len(media) == 1:
+            message = self._bot.send_photo(chat_id, photo=self._input_photo(media[0]), caption=caption,
+                                           reply_markup=reply_markup, **kwargs)
+            media[0].id = message.photo[-1].file_id
+            return message
+
+        for start in range(0, len(media), 10):
+            chunk = media[start:start + 10]
+            messages = self._bot.send_media_group(chat_id, [types.InputMediaPhoto(self._input_photo(item))
+                                                            for item in chunk])
+            for item, message in zip(chunk, messages):
+                item.id = message.photo[-1].file_id
+        return self._bot.send_message(chat_id, caption, reply_markup=mark_detached(reply_markup), **kwargs)
+
+    def render_screen(self, state, text, media, reply_markup=None, force_new=False):
+        media = media or []
+
+        if state.message_id is not None and not force_new:
+            try:
+                if len(media) == 1 and state.content_type == 'photo':
+                    photo = types.InputMediaPhoto(self._input_photo(media[0]), caption=text)
+                    message = self._bot.edit_message_media(photo, state.chat_id, state.message_id,
+                                                           reply_markup=reply_markup)
+                    if getattr(message, 'photo', None):
+                        media[0].id = message.photo[-1].file_id
+                    return message
+                if not media and state.content_type == 'text':
+                    return self._bot.edit_message_text(text, state.chat_id, state.message_id, reply_markup=reply_markup)
+            except apihelper.ApiTelegramException as e:
+                if 'message is not modified' in str(e):
+                    return None
+
+        return self.send_photos(state.chat_id, media, text, reply_markup=reply_markup)
 
 
 class MaxMessengerClient(BaseMessengerClient):
@@ -133,6 +207,18 @@ class MaxMessengerClient(BaseMessengerClient):
         headers = kwargs.pop('headers', {})
         headers['Authorization'] = self.token
         return requests.request(method, f'{self.base_url}{path}', headers=headers, timeout=5, **kwargs)
+
+    def _send_body(self, method: str, path: str, params: dict, payload: dict):
+        delay = 1
+        for attempt in range(5):
+            response = self._request(method, path, params=params,
+                                     headers={'Content-Type': 'application/json'}, json=payload)
+            if response.ok:
+                return response.json()
+            if response.status_code != 400 or 'attachment.not.ready' not in response.text or attempt == 4:
+                response.raise_for_status()
+            time.sleep(delay)
+            delay *= 2
 
     def _build_attachments(self, reply_markup):
         if reply_markup is None:
@@ -175,15 +261,17 @@ class MaxMessengerClient(BaseMessengerClient):
 
         return body
 
-    def begin_callback(self, callback_id: str, reply_markup=None):
+    def begin_callback(self, callback_id: str, text=None, photos=None, reply_markup=None):
         self._active_callback_id = callback_id
         self._callback_answered = False
-        self._pending_callback_message = {}
         self._pending_callback_notification = None
 
-        attachments = self._build_attachments(reply_markup)
-        if attachments is not None:
-            self._pending_callback_message['attachments'] = attachments
+        image_attachments = [{'type': 'image', 'payload': {'token': photo.file_id}} for photo in (photos or [])]
+        self._pending_callback_message = {
+            'attachments': image_attachments + (self._build_attachments(reply_markup) or []),
+        }
+        if text is not None:
+            self._pending_callback_message['text'] = text
 
     def _enqueue_callback_message(self, message_body):
         if not self._active_callback_id or self._callback_answered:
@@ -206,16 +294,7 @@ class MaxMessengerClient(BaseMessengerClient):
         return True
 
     def send_message(self, chat_id: int, text: str, **kwargs):
-        payload = self._build_message_body(text=text, **kwargs)
-        response = self._request(
-            'POST',
-            '/messages',
-            params={'chat_id': chat_id},
-            headers={'Content-Type': 'application/json'},
-            json=payload,
-        )
-        response.raise_for_status()
-        return response.json()
+        return self._send_body('POST', '/messages', {'chat_id': chat_id}, self._build_message_body(text=text, **kwargs))
 
     def edit_message_text(self, text, chat_id, message_id, **kwargs):
         payload = self._build_message_body(text=text, **kwargs)
@@ -243,7 +322,7 @@ class MaxMessengerClient(BaseMessengerClient):
         return response.json()
 
     def send_photo(self, chat_id, photo, caption=None, **kwargs):
-        return self.send_photos(chat_id, [photo], caption or '', **kwargs)
+        return self.send_photos(chat_id, [MediaItem(id=photo)], caption or '', **kwargs)
 
     def download_photo(self, photo):
         if not getattr(photo, 'url', None):
@@ -268,40 +347,44 @@ class MaxMessengerClient(BaseMessengerClient):
         token = tuple(photos.values())[0]['token']
         return token
 
-    def materialize_photo(self, chat_id: int, data: bytes, filename: str, content_type: str | None = None):
-        token = self.upload_photo(data, filename, content_type)
-        self.send_photos(chat_id, [token], '', reply_markup=None)
-        return token
+    def _image_attachments(self, media: list[MediaItem]):
+        attachments = []
+        for item in media:
+            if not item.id:
+                item.id = self.upload_photo(item.data, item.filename or 'photo.jpg', item.content_type)
+            attachments.append({'type': 'image', 'payload': {'token': item.id}})
+        return attachments
 
-    def send_photos(self, chat_id: int, photos: list[str], caption: str, reply_markup=None, **kwargs):
+    def send_photos(self, chat_id: int, media: list[MediaItem], caption: str, reply_markup=None, **kwargs):
+        if not media:
+            return self.send_message(chat_id, caption, reply_markup=reply_markup, **kwargs)
+
         chunk_size = 11 if reply_markup else 12
         result = None
-        for start in range(0, len(photos), chunk_size):
-            is_last_chunk = start + chunk_size >= len(photos)
-            attachments = [{'type': 'image', 'payload': {'token': photo}} for photo in photos[start:start + chunk_size]]
+        for start in range(0, len(media), chunk_size):
+            is_last_chunk = start + chunk_size >= len(media)
             payload = self._build_message_body(
                 caption if is_last_chunk else '',
-                attachments=attachments,
+                attachments=self._image_attachments(media[start:start + chunk_size]),
                 reply_markup=reply_markup if is_last_chunk else None,
                 **kwargs,
             )
-            delay = 1
-            for attempt in range(5):
-                response = self._request(
-                    'POST',
-                    '/messages',
-                    params={'chat_id': chat_id},
-                    headers={'Content-Type': 'application/json'},
-                    json=payload,
-                )
-                if response.ok:
-                    result = response.json()
-                    break
-                if response.status_code != 400 or 'attachment.not.ready' not in response.text or attempt == 4:
-                    response.raise_for_status()
-                time.sleep(delay)
-                delay *= 2
+            result = self._send_body('POST', '/messages', {'chat_id': chat_id}, payload)
         return result
+
+    def render_screen(self, state, text, media, reply_markup=None, force_new=False):
+        media = media or []
+        limit = 11 if reply_markup else 12
+
+        if state.message_id is not None and not force_new and len(media) <= limit:
+            payload = self._build_message_body(text, attachments=self._image_attachments(media),
+                                               reply_markup=reply_markup)
+            if self._enqueue_callback_message(payload):
+                return {'success': True}
+
+            return self._send_body('PUT', '/messages', {'message_id': state.message_id}, payload)
+
+        return self.send_photos(state.chat_id, media, text, reply_markup=reply_markup)
 
     def answer_callback_query(self, callback_query_id: str, **kwargs):
         callback_id = callback_query_id or self._active_callback_id
@@ -318,15 +401,13 @@ class MaxMessengerClient(BaseMessengerClient):
         if self._pending_callback_notification is not None:
             body['notification'] = self._pending_callback_notification
 
-        response = self._request(
-            'POST',
-            '/answers',
-            params={'callback_id': callback_id},
-            headers={'Content-Type': 'application/json'},
-            json=body,
-        )
-        response.raise_for_status()
-        result = response.json()
+        if body:
+            result = self._send_body('POST', '/answers', {'callback_id': callback_id}, body)
+        else:
+            response = self._request('POST', '/answers', params={'callback_id': callback_id})
+            response.raise_for_status()
+            result = response.json()
+
         if not result.get('success', False):
             raise RuntimeError(f"Ошибка ответа на callback MAX: {result.get('message', 'неизвестная ошибка')}")
 

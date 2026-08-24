@@ -8,9 +8,10 @@ from telebot import types
 import constants
 from constants import Phrase
 from messenger_context import get_messenger_from_kwargs, get_users_table
-from messengers import BaseMessengerClient, Messenger, TelegramMessengerClient
+from messengers import BaseMessengerClient, MediaItem, Messenger, ScreenState, TelegramMessengerClient, \
+    force_new_screen
 from storage import ObjectStorage
-from utils import send_text, edit_level
+from utils import edit_level, suffixes
 
 
 def _execute(session, query):
@@ -50,32 +51,65 @@ def _save_media_id(change_id, messenger, media_id, session):
     )
 
 
-def _send_changes(bot, chat_id, date, text, inline_kb, session, logger):
-    bot = _get_client(bot)
-    messenger = bot.platform
+def _screen_state(mm, chat_id):
+    if hasattr(mm, 'message'):
+        return ScreenState(chat_id=chat_id, message_id=mm.message.id, content_type=mm.message.content_type)
+    return ScreenState(chat_id=chat_id)
+
+
+def _force_new(mm):
+    return hasattr(mm, 'data') and force_new_screen(mm.data)
+
+
+def send_text(bot, mm, text, inline_kb):
+    if hasattr(mm, 'message'):
+        suffixes(bot, mm, text, inline_kb)
+        chat_id = mm.message.chat.id
+    else:
+        chat_id = mm.chat.id
+
+    client = _get_client(bot)
+    return client.render_screen(_screen_state(mm, chat_id), text, [], reply_markup=inline_kb,
+                                force_new=_force_new(mm))
+
+
+def _send_changes(bot, mm, chat_id, date, text, inline_kb, session, logger):
+    if hasattr(mm, 'message'):
+        suffixes(bot, mm, text, inline_kb)
+
+    client = _get_client(bot)
+    messenger = client.platform
     media_column = _media_column(messenger)
-    changes = _get_changes(date, session)
-    cached_media = [change[media_column] for change in changes if change.get(media_column)]
-    missing_media = [change for change in changes if not change.get(media_column)]
+    storage = None
 
-    if not missing_media:
-        return bot.send_photos(chat_id, cached_media, text, reply_markup=inline_kb)
+    media = []
+    for change in _get_changes(date, session):
+        item = MediaItem(id=change.get(media_column))
+        if not item.id:
+            filename = change.get('s3_file_name')
+            if not filename:
+                logger.error('Не найдена резервная копия изменения расписания', extra={'change_id': change['id']})
+                continue
+            storage = storage or ObjectStorage()
+            item.data, item.content_type = storage.download_photo(filename)
+            item.filename = filename
+        media.append((change, item))
 
-    storage = ObjectStorage()
-    for change in missing_media:
-        filename = change.get('s3_file_name')
-        if not filename:
-            logger.error('Не найдена резервная копия изменения расписания', extra={'change_id': change['id']})
+    result = client.render_screen(_screen_state(mm, chat_id), text, [item for _, item in media],
+                                  reply_markup=inline_kb, force_new=_force_new(mm))
+
+    for change, item in media:
+        if change.get(media_column) or not item.id:
             continue
-        data, content_type = storage.download_photo(filename)
-        media_id = bot.materialize_photo(chat_id, data, filename, content_type)
-        _save_media_id(change['id'], messenger, media_id, session)
-        storage.delete_photo(filename)
-        _execute(session, f'UPDATE changes_tt SET s3_file_name = NULL WHERE id = Uuid("{change["id"]}");')
+        _save_media_id(change['id'], messenger, item.id, session)
+        change[media_column] = item.id
+        # резервная копия в S3 нужна, пока фотография не выгружена в оба мессенджера
+        if change.get('tg_file_id') and change.get('max_token'):
+            storage = storage or ObjectStorage()
+            storage.delete_photo(change['s3_file_name'])
+            _execute(session, f'UPDATE changes_tt SET s3_file_name = NULL WHERE id = Uuid("{change["id"]}");')
 
-    if cached_media:
-        bot.send_photos(chat_id, cached_media, '', reply_markup=None)
-    return bot.send_message(chat_id, text, reply_markup=inline_kb)
+    return result
 
 
 def edit_changes_tt(m, user, bot, session, *args, **kwargs):
@@ -118,8 +152,8 @@ def del_changes_tt(m, user, bot, session, *args, **kwargs):
                                             year=time_date.tm_year
                                             )
 
-    list_inline_btn = [('Добавить на этот день', f'achtt_{date}$new'), ('📝 Изменения в расписании', 'chtt$new'),
-                       ('🏠 В меню', 'menu$new')]
+    list_inline_btn = [('Добавить на этот день', f'achtt_{date}'), ('📝 Изменения в расписании', 'chtt'),
+                       ('🏠 В меню', 'menu')]
     inline_buttons = [types.InlineKeyboardButton(t[0], callback_data=t[1]) for t in list_inline_btn]
     inline_kb = types.InlineKeyboardMarkup(row_width=1).add(*inline_buttons)
 
@@ -202,7 +236,7 @@ def mailing_changes_tt(clients, session, logger, *args, **kwargs):
             total_count += len(users)
             for user_id in users:
                 try:
-                    _send_changes(bot, user_id, sql_date, text, inline_kb, session, logger)
+                    _send_changes(bot, None, user_id, sql_date, text, inline_kb, session, logger)
                 except Exception:
                     logger.exception('Не удалось отправить изменения в расписании',
                                      extra={'user_id': user_id, 'messenger': messenger.value})
@@ -315,6 +349,16 @@ def get_photo(m, user, bot, session, *args, **kwargs):
         edit_level(m, 'achtt', session)
 
 
+def _photos_to_add(m, messenger):
+    # В Telegram m.photo — размеры одной фотографии, нужен самый большой,
+    # а в MAX одно сообщение содержит все отправленные фотографии
+    if not m.photo:
+        return []
+    if Messenger(messenger) is Messenger.MAX:
+        return m.photo
+    return [m.photo[-1]]
+
+
 def add_changes_tt(m, user, bot, session, *args, **kwargs):
     if args:
         date = args[0]
@@ -344,18 +388,25 @@ def add_changes_tt(m, user, bot, session, *args, **kwargs):
             list_inline_btn = [('← Назад', 'chtt')]
         else:
             messenger = get_messenger_from_kwargs(kwargs)
-            photo = m.photo[-1]
-            client = _get_client(bot)
-            data, content_type = client.download_photo(photo)
-            change_id = uuid4()
-            s3_file_name = ObjectStorage().upload_photo(data, content_type, filename=str(change_id))
-            _execute(
-                session,
-                f'INSERT INTO changes_tt (id, {_media_column(messenger)}, date, s3_file_name) '
-                f'VALUES (Uuid("{change_id}"), "{photo.file_id}", DATE("{date_format}"), "{s3_file_name}");'
-            )
-            phr = Phrase.EDIT_CHANGES_SUCCESSFULL
-            list_inline_btn = [('← Назад', f'chtt_{date}')]
+            photos = _photos_to_add(m, messenger)
+            if not photos:
+                phr = Phrase.EDIT_CHANGES_NOT_DATE
+                flag = 0
+                list_inline_btn = [('← Назад', 'chtt')]
+            else:
+                client = _get_client(bot)
+                storage = ObjectStorage()
+                for photo in photos:
+                    data, content_type = client.download_photo(photo)
+                    change_id = uuid4()
+                    s3_file_name = storage.upload_photo(data, content_type, filename=str(change_id))
+                    _execute(
+                        session,
+                        f'INSERT INTO changes_tt (id, {_media_column(messenger)}, date, s3_file_name) '
+                        f'VALUES (Uuid("{change_id}"), "{photo.file_id}", DATE("{date_format}"), "{s3_file_name}");'
+                    )
+                phr = Phrase.EDIT_CHANGES_SUCCESSFULL
+                list_inline_btn = [('← Назад', f'chtt_{date}')]
 
         text = phr.format(acc=constants.weekdays[time_date.tm_wday]['accusative'],
                           day=time_date.tm_mday, dec=constants.months[time_date.tm_mon - 1]['dec'],
@@ -421,28 +472,25 @@ def send_date(m, user, bot, session, *args, **kwargs):
     if f:
         if user['admin']:
             if f == 1:
-                list_inline_btn.append(('Редактировать на этот день', f'echtt_{date}$new'))
+                list_inline_btn.append(('Редактировать на этот день', f'echtt_{date}'))
             if f == 2:
                 list_inline_btn.append(('Добавить на этот день', f'achtt_{date}'))
-        list_inline_btn.append(('Изменения на другой день', 'dchtt$new'))
+        list_inline_btn.append(('Изменения на другой день', 'dchtt'))
     inline_buttons = [types.InlineKeyboardButton(t[0], callback_data=t[1]) for t in list_inline_btn]
     inline_kb = types.InlineKeyboardMarkup(row_width=1).add(*inline_buttons)
 
-    if f == 2 or not f:
-        list_inline_btn = [('← Назад', 'chtt'), ('🏠 В меню', 'menu')]
-    else:
-        list_inline_btn = [('← Назад', 'chtt$new'), ('🏠 В меню', 'menu$new')]
+    list_inline_btn = [('← Назад', 'chtt'), ('🏠 В меню', 'menu')]
     inline_buttons = [types.InlineKeyboardButton(t[0], callback_data=t[1]) for t in list_inline_btn]
     inline_kb.row(*inline_buttons)
 
     if f:
         if f == 2:
-            send_text(bot, m, text, inline_kb)
+            send_text(bot, copy_m, text, inline_kb)
         else:
-            _send_changes(bot, m.chat.id, date_format, text, inline_kb, session, kwargs['logger'])
+            _send_changes(bot, copy_m, m.chat.id, date_format, text, inline_kb, session, kwargs['logger'])
         edit_level(copy_m, 'menu', session)
     else:
-        send_text(bot, m, text, inline_kb)
+        send_text(bot, copy_m, text, inline_kb)
 
 
 def find_date(text):
@@ -593,9 +641,6 @@ def call(m, user, bot, session, *args, **kwargs):
         ('🔔 Подписка на изменения', 'subchtt'),
         ('🏠 В меню', 'menu')
     ]
-    if has_changes:
-        for i in range(len(list_inline_btn)):
-            list_inline_btn[i] = (list_inline_btn[i][0], list_inline_btn[i][1] + '$new')
     inline_buttons = [types.InlineKeyboardButton(t[0], callback_data=t[1]) for t in list_inline_btn]
     inline_kb = types.InlineKeyboardMarkup(row_width=1).add(*inline_buttons)
 
@@ -607,6 +652,6 @@ def call(m, user, bot, session, *args, **kwargs):
         send_text(bot, mm, text, inline_kb)
     else:
         target_date = sql_tomorrow if not flag else sql_today
-        _send_changes(bot, m.chat.id, target_date, text, inline_kb, session, kwargs['logger'])
+        _send_changes(bot, mm, m.chat.id, target_date, text, inline_kb, session, kwargs['logger'])
     if user['level'] != 'menu':
         edit_level(mm, 'menu', session)
