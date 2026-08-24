@@ -161,7 +161,8 @@ def process_max_callback(max_message, max_client):
         max_client.answer_callback_query(max_message.id, notification='Ошибка. Нажмите кнопку ещё раз')
         return
 
-    max_client.begin_callback(max_message.id, max_message.message.reply_markup)
+    max_client.begin_callback(max_message.id, max_message.message.text, max_message.message.photo,
+                              max_message.message.reply_markup)
     user = user_verif(max_message, session)
     callback_handling(max_message, user, max_client, session, logger=logger,
                       context=max_message.context, messenger=max_message.messenger)

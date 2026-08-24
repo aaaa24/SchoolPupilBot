@@ -21,6 +21,14 @@ def _is_command(text):
     return isinstance(text, str) and text.startswith('/')
 
 
+def _max_photos(body):
+    return [
+        UnifiedPhoto(attachment['payload']['token'], attachment['payload'].get('url'))
+        for attachment in body.get('attachments', []) or []
+        if attachment.get('type') == 'image' and attachment.get('payload', {}).get('token')
+    ]
+
+
 def _parse_max_update(payload, context):
     update_type = payload.get('update_type')
 
@@ -34,11 +42,14 @@ def _parse_max_update(payload, context):
         user_id = sender.get('user_id')
         chat_id = recipient.get('chat_id') or recipient.get('user_id')
 
-        photos = [
-            UnifiedPhoto(attachment['payload']['token'], attachment['payload'].get('url'))
-            for attachment in body.get('attachments', [])
-            if attachment.get('type') == 'image' and attachment.get('payload', {}).get('token')
-        ]
+        photos = _max_photos(body)
+        link = message.get('link', {}) or {}
+        if not photos and link.get('type') == 'forward':
+            # у пересылки фотографии и подпись лежат в исходном сообщении
+            forwarded = link.get('message', {}) or {}
+            photos = _max_photos(forwarded)
+            text = text or forwarded.get('text')
+
         if user_id is None or chat_id is None or (text is None and not photos):
             return None
 
