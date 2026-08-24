@@ -1,5 +1,6 @@
 import time
 from re import search
+from uuid import uuid4
 
 import ydb
 from telebot import types
@@ -7,8 +8,74 @@ from telebot import types
 import constants
 from constants import Phrase
 from messenger_context import get_messenger_from_kwargs, get_users_table
-from messengers import Messenger
+from messengers import BaseMessengerClient, Messenger, TelegramMessengerClient
+from storage import ObjectStorage
 from utils import send_text, edit_level
+
+
+def _execute(session, query):
+    return session.transaction().execute(
+        query,
+        commit_tx=True,
+        settings=ydb.BaseRequestSettings().with_timeout(3).with_operation_timeout(2)
+    )
+
+
+def _media_column(messenger):
+    return {
+        Messenger.TELEGRAM: 'tg_file_id',
+        Messenger.MAX: 'max_token',
+    }[Messenger(messenger)]
+
+
+def _get_client(bot):
+    if isinstance(bot, BaseMessengerClient):
+        return bot
+    return TelegramMessengerClient(bot)
+
+
+def _get_changes(date, session):
+    result = _execute(session, f'SELECT * FROM changes_tt WHERE date = Date("{date}")')
+    return [dict(row) for row in result[0].rows]
+
+
+def _has_changes(date, session):
+    return bool(_get_changes(date, session))
+
+
+def _save_media_id(change_id, messenger, media_id, session):
+    _execute(
+        session,
+        f'UPDATE changes_tt SET {_media_column(messenger)} = "{media_id}" WHERE id = Uuid("{change_id}");'
+    )
+
+
+def _send_changes(bot, chat_id, date, text, inline_kb, session, logger):
+    bot = _get_client(bot)
+    messenger = bot.platform
+    media_column = _media_column(messenger)
+    changes = _get_changes(date, session)
+    cached_media = [change[media_column] for change in changes if change.get(media_column)]
+    missing_media = [change for change in changes if not change.get(media_column)]
+
+    if not missing_media:
+        return bot.send_photos(chat_id, cached_media, text, reply_markup=inline_kb)
+
+    storage = ObjectStorage()
+    for change in missing_media:
+        filename = change.get('s3_file_name')
+        if not filename:
+            logger.error('Не найдена резервная копия изменения расписания', extra={'change_id': change['id']})
+            continue
+        data, content_type = storage.download_photo(filename)
+        media_id = bot.materialize_photo(chat_id, data, filename, content_type)
+        _save_media_id(change['id'], messenger, media_id, session)
+        storage.delete_photo(filename)
+        _execute(session, f'UPDATE changes_tt SET s3_file_name = NULL WHERE id = Uuid("{change["id"]}");')
+
+    if cached_media:
+        bot.send_photos(chat_id, cached_media, '', reply_markup=None)
+    return bot.send_message(chat_id, text, reply_markup=inline_kb)
 
 
 def edit_changes_tt(m, user, bot, session, *args, **kwargs):
@@ -37,11 +104,13 @@ def del_changes_tt(m, user, bot, session, *args, **kwargs):
     date_format = '-'.join(date.split('.')[::-1])
     time_date = time.strptime(date, '%d.%m.%Y')
 
-    request = session.transaction().execute(
-        f'DELETE FROM changes_tt WHERE date = Date("{date_format}")',
-        commit_tx=True,
-        settings=ydb.BaseRequestSettings().with_timeout(3).with_operation_timeout(2)
-    )
+    changes = _get_changes(date_format, session)
+    filenames = [change['s3_file_name'] for change in changes if change.get('s3_file_name')]
+    if filenames:
+        storage = ObjectStorage()
+        for filename in filenames:
+            storage.delete_photo(filename)
+    _execute(session, f'DELETE FROM changes_tt WHERE date = Date("{date_format}")')
 
     text = Phrase.YES_DEL_CHANGES_TT.format(acc=constants.weekdays[time_date.tm_wday]['accusative'],
                                             day=time_date.tm_mday,
@@ -75,7 +144,7 @@ def confirmation_del_changes_tt(m, user, bot, session, *args, **kwargs):
     send_text(bot, m, text, inline_kb)
 
 
-def mailing_changes_tt(bot, session, logger, *args, **kwargs):
+def mailing_changes_tt(clients, session, logger, *args, **kwargs):
     start_time = time.time()
     logger.debug('Запущена функция mailing_changes_tt')
     log_info = {
@@ -85,11 +154,7 @@ def mailing_changes_tt(bot, session, logger, *args, **kwargs):
         'total_count': None, 'final_count': None
     }
 
-    request = session.transaction().execute(
-        f'SELECT * FROM app WHERE key = "mailing_has_been_sent";',
-        commit_tx=True,
-        settings=ydb.BaseRequestSettings().with_timeout(3).with_operation_timeout(2)
-    )
+    request = _execute(session, 'SELECT * FROM app WHERE key = "mailing_has_been_sent";')
     mailing_has_already_been_sent = True if request[0].rows[0]['value'] == 'true' else False
     log_info['mailing_has_already_been_sent'] = mailing_has_already_been_sent
 
@@ -105,19 +170,15 @@ def mailing_changes_tt(bot, session, logger, *args, **kwargs):
     date = f'{struct_time.tm_mday}.{struct_time.tm_mon}.{struct_time.tm_year}'
     sql_date = f'{struct_time.tm_year}-{struct_time.tm_mon}-{struct_time.tm_mday}'
 
-    file_ids = _get_file_id(sql_date, session)
+    changes = _get_changes(sql_date, session)
     log_info['date'] = date
     log_info['sql_date'] = sql_date
     log_info['flag'] = flag
-    log_info['count_files'] = len(file_ids)
+    log_info['count_files'] = len(changes)
 
     if flag == 'today' and mailing_has_already_been_sent:
-        request = session.transaction().execute(
-            f'UPSERT INTO app (key, value) VALUES ("mailing_has_been_sent", "false");',
-            commit_tx=True,
-            settings=ydb.BaseRequestSettings().with_timeout(3).with_operation_timeout(2)
-        )
-    elif file_ids:
+        _execute(session, 'UPSERT INTO app (key, value) VALUES ("mailing_has_been_sent", "false");')
+    elif changes:
         text = Phrase.CHANGES_TT_SOON.format(fewd='завтра' if flag == 'tomorrow' else 'сегодня',
                                              weekd=constants.weekdays[struct_time.tm_wday]['name'],
                                              day=struct_time.tm_mday,
@@ -130,39 +191,30 @@ def mailing_changes_tt(bot, session, logger, *args, **kwargs):
         inline_buttons = [types.InlineKeyboardButton(t[0], callback_data=t[1]) for t in list_inline_btn]
         inline_kb = types.InlineKeyboardMarkup(row_width=1).add(*inline_buttons)
 
-        request = session.transaction().execute(
-            f'SELECT id FROM {get_users_table(Messenger.TELEGRAM)} WHERE send_changes_tt = true;',
-            commit_tx=True,
-            settings=ydb.BaseRequestSettings().with_timeout(3).with_operation_timeout(2)
-        )
-        users = [row['id'] for row in request[0].rows]
-        if len(file_ids) > 1:
-            media = [types.InputMediaPhoto(file_id) for file_id in file_ids]
-
-        count = 0
-        for user_id in users:
-            try:
-                if len(file_ids) == 1:
-                    bot.send_photo(user_id, caption=text, photo=file_ids[0], reply_markup=inline_kb)
+        total_count = 0
+        final_count = 0
+        for messenger, bot in clients.items():
+            request = _execute(
+                session,
+                f'SELECT id FROM {get_users_table(messenger)} WHERE send_changes_tt = true;'
+            )
+            users = [row['id'] for row in request[0].rows]
+            total_count += len(users)
+            for user_id in users:
+                try:
+                    _send_changes(bot, user_id, sql_date, text, inline_kb, session, logger)
+                except Exception:
+                    logger.exception('Не удалось отправить изменения в расписании',
+                                     extra={'user_id': user_id, 'messenger': messenger.value})
                 else:
-                    bot.send_media_group(user_id, media)
-                    bot.send_message(user_id, text, reply_markup=inline_kb)
-            except:
-                import traceback
-                traceback.print_exc()
-            else:
-                count += 1
-        log_info['total_count'] = len(users)
-        log_info['final_count'] = count
+                    final_count += 1
+        log_info['total_count'] = total_count
+        log_info['final_count'] = final_count
         log_info['is_sent'] = True
 
         if flag == 'tomorrow':
             if not mailing_has_already_been_sent:
-                request = session.transaction().execute(
-                    'UPSERT INTO app (key, value) VALUES ("mailing_has_been_sent", "true");',
-                    commit_tx=True,
-                    settings=ydb.BaseRequestSettings().with_timeout(3).with_operation_timeout(2)
-                )
+                _execute(session, 'UPSERT INTO app (key, value) VALUES ("mailing_has_been_sent", "true");')
 
     logger.debug('Завершена функция mailing_changes_tt', extra={'duration': time.time() - start_time, 'info': log_info})
 
@@ -291,10 +343,16 @@ def add_changes_tt(m, user, bot, session, *args, **kwargs):
             flag = 0
             list_inline_btn = [('← Назад', 'chtt')]
         else:
-            request = session.transaction().execute(
-                f'UPSERT INTO changes_tt (file_id, date) VALUES ("{m.photo[-1].file_id}", DATE("{date_format}"));',
-                commit_tx=True,
-                settings=ydb.BaseRequestSettings().with_timeout(3).with_operation_timeout(2)
+            messenger = get_messenger_from_kwargs(kwargs)
+            photo = m.photo[-1]
+            client = _get_client(bot)
+            data, content_type = client.download_photo(photo)
+            change_id = uuid4()
+            s3_file_name = ObjectStorage().upload_photo(data, content_type, filename=str(change_id))
+            _execute(
+                session,
+                f'INSERT INTO changes_tt (id, {_media_column(messenger)}, date, s3_file_name) '
+                f'VALUES (Uuid("{change_id}"), "{photo.file_id}", DATE("{date_format}"), "{s3_file_name}");'
             )
             phr = Phrase.EDIT_CHANGES_SUCCESSFULL
             list_inline_btn = [('← Назад', f'chtt_{date}')]
@@ -344,8 +402,8 @@ def send_date(m, user, bot, session, *args, **kwargs):
             phr = Phrase.IT_IS_SUNDAY
             f = 0
         else:
-            file_ids = _get_file_id(date_format, session)
-            if file_ids:
+            has_changes = _has_changes(date_format, session)
+            if has_changes:
                 phr = Phrase.CHANGES_TT_WEEKDAY
                 f = 1
             else:
@@ -370,7 +428,7 @@ def send_date(m, user, bot, session, *args, **kwargs):
     inline_buttons = [types.InlineKeyboardButton(t[0], callback_data=t[1]) for t in list_inline_btn]
     inline_kb = types.InlineKeyboardMarkup(row_width=1).add(*inline_buttons)
 
-    if f and len(file_ids) == 0 or not f:
+    if f == 2 or not f:
         list_inline_btn = [('← Назад', 'chtt'), ('🏠 В меню', 'menu')]
     else:
         list_inline_btn = [('← Назад', 'chtt$new'), ('🏠 В меню', 'menu$new')]
@@ -378,14 +436,10 @@ def send_date(m, user, bot, session, *args, **kwargs):
     inline_kb.row(*inline_buttons)
 
     if f:
-        if len(file_ids) == 0:
+        if f == 2:
             send_text(bot, m, text, inline_kb)
-        elif len(file_ids) == 1:
-            bot.send_photo(m.chat.id, caption=text, photo=file_ids[0], reply_markup=inline_kb)
         else:
-            media = [types.InputMediaPhoto(file_id) for file_id in file_ids]
-            bot.send_media_group(m.chat.id, media)
-            bot.send_message(m.chat.id, text, reply_markup=inline_kb)
+            _send_changes(bot, m.chat.id, date_format, text, inline_kb, session, kwargs['logger'])
         edit_level(copy_m, 'menu', session)
     else:
         send_text(bot, m, text, inline_kb)
@@ -463,17 +517,6 @@ def get_date(m, user, bot, session, *args, **kwargs):
     edit_level(m, 'dchtt', session)
 
 
-def _get_file_id(date, session):
-    result = session.transaction().execute(
-        f'SELECT * FROM changes_tt WHERE date = Date("{date}");',
-        commit_tx=True,
-        settings=ydb.BaseRequestSettings().with_timeout(3).with_operation_timeout(2)
-    )
-
-    m = [f['file_id'] for f in result[0].rows]
-    return m
-
-
 def call(m, user, bot, session, *args, **kwargs):
     t = time.time() + 10800
     time_now = time.localtime(t)
@@ -493,8 +536,8 @@ def call(m, user, bot, session, *args, **kwargs):
     list_inline_btn = []
 
     if time_now.tm_hour >= control_hour and time_now.tm_min >= control_min or time_now.tm_wday == 6:
-        file_ids = _get_file_id(sql_tomorrow, session)
-        if file_ids:
+        has_changes = _has_changes(sql_tomorrow, session)
+        if has_changes:
             text = Phrase.CHANGES_TT_SOON.format(fewd='завтра' if time_now.tm_wday != 5 else 'послезавтра',
                                                  weekd=constants.weekdays[tomorrow.tm_wday]['name'],
                                                  day=tomorrow.tm_mday, dec=constants.months[tomorrow.tm_mon - 1]['dec'])
@@ -507,8 +550,8 @@ def call(m, user, bot, session, *args, **kwargs):
         flag = 2
     if flag:
         if time_now.tm_wday != 6:
-            file_ids = _get_file_id(sql_today, session)
-            if file_ids:
+            has_changes = _has_changes(sql_today, session)
+            if has_changes:
                 text = Phrase.CHANGES_TT_SOON.format(fewd='сегодня', weekd=constants.weekdays[time_now.tm_wday]['name'],
                                                      day=time_now.tm_mday,
                                                      dec=constants.months[time_now.tm_mon - 1]['dec'])
@@ -529,7 +572,7 @@ def call(m, user, bot, session, *args, **kwargs):
     if user['admin']:
         if flag:
             if time_now.tm_wday != 6:
-                if file_ids:
+                if has_changes:
                     list_inline_btn += [('Редактировать на сегодня', f'echtt_{date_today}')]
                 else:
                     list_inline_btn += [('Добавить на сегодня', f'achtt_{date_today}')]
@@ -550,7 +593,7 @@ def call(m, user, bot, session, *args, **kwargs):
         ('🔔 Подписка на изменения', 'subchtt'),
         ('🏠 В меню', 'menu')
     ]
-    if len(file_ids) > 0:
+    if has_changes:
         for i in range(len(list_inline_btn)):
             list_inline_btn[i] = (list_inline_btn[i][0], list_inline_btn[i][1] + '$new')
     inline_buttons = [types.InlineKeyboardButton(t[0], callback_data=t[1]) for t in list_inline_btn]
@@ -560,13 +603,10 @@ def call(m, user, bot, session, *args, **kwargs):
     if hasattr(m, 'message'):
         m = m.message
 
-    if len(file_ids) == 0:
+    if not has_changes:
         send_text(bot, mm, text, inline_kb)
-    elif len(file_ids) == 1:
-        bot.send_photo(m.chat.id, caption=text, photo=file_ids[0], reply_markup=inline_kb)
     else:
-        media = [types.InputMediaPhoto(file_id) for file_id in file_ids]
-        bot.send_media_group(m.chat.id, media)
-        bot.send_message(m.chat.id, text, reply_markup=inline_kb)
+        target_date = sql_tomorrow if not flag else sql_today
+        _send_changes(bot, m.chat.id, target_date, text, inline_kb, session, kwargs['logger'])
     if user['level'] != 'menu':
         edit_level(mm, 'menu', session)

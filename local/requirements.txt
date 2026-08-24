@@ -4,6 +4,7 @@ python-json-logger
 yandexcloud
 protobuf
 yookassa
+boto3
 
 python-dotenv
 flask
