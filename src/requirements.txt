@@ -4,3 +4,4 @@ python-json-logger
 yandexcloud
 protobuf
 yookassa
+boto3

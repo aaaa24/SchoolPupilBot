@@ -2,7 +2,8 @@ from json import dumps, loads
 
 import telebot
 
-from main import bot, logger, process_max_callback, process_command_message, process_text_message, set_connect
+from main import bot, logger, process_max_callback, process_command_message, process_text_message, set_connect, \
+    telegram_client
 from messengers import (
     MaxMessengerClient,
     Messenger,
@@ -11,6 +12,7 @@ from messengers import (
     UnifiedCallbackMessage,
     UnifiedCallbackQuery,
     UnifiedMessage,
+    UnifiedPhoto,
     max_keyboard_to_markup,
 )
 
@@ -32,7 +34,12 @@ def _parse_max_update(payload, context):
         user_id = sender.get('user_id')
         chat_id = recipient.get('chat_id') or recipient.get('user_id')
 
-        if user_id is None or chat_id is None or text is None:
+        photos = [
+            UnifiedPhoto(attachment['payload']['token'], attachment['payload'].get('url'))
+            for attachment in body.get('attachments', [])
+            if attachment.get('type') == 'image' and attachment.get('payload', {}).get('token')
+        ]
+        if user_id is None or chat_id is None or (text is None and not photos):
             return None
 
         user = MessengerUser(
@@ -41,7 +48,15 @@ def _parse_max_update(payload, context):
             last_name=sender.get('last_name'),
             username=sender.get('username'),
         )
-        return UnifiedMessage(messenger=Messenger.MAX, user=user, chat=MessengerChat(id=int(chat_id)), text=text, context=context)
+        return UnifiedMessage(
+            messenger=Messenger.MAX,
+            user=user,
+            chat=MessengerChat(id=int(chat_id)),
+            text=None if photos else text,
+            caption=text if photos else None,
+            photos=photos or None,
+            context=context,
+        )
 
     if update_type == 'message_callback':
         callback = payload.get('callback', {}) or {}
@@ -70,6 +85,11 @@ def _parse_max_update(payload, context):
             text=body.get('text') or '',
             message_id=body.get('mid'),
             reply_markup=max_keyboard_to_markup(body.get('attachments')),
+            photos=[
+                UnifiedPhoto(attachment['payload']['token'], attachment['payload'].get('url'))
+                for attachment in body.get('attachments', [])
+                if attachment.get('type') == 'image' and attachment.get('payload', {}).get('token')
+            ] or None,
         )
         return UnifiedCallbackQuery(
             messenger=Messenger.MAX,
@@ -147,7 +167,14 @@ def handler(event, context):
             session, _ = set_connect(50)
             if not session is None:
                 from changes_tt import mailing_changes_tt
-                mailing_changes_tt(bot, session, logger)
+                mailing_changes_tt(
+                    {
+                        Messenger.TELEGRAM: telegram_client,
+                        Messenger.MAX: MaxMessengerClient(),
+                    },
+                    session,
+                    logger,
+                )
                 session.closing()
 
     return {'statusCode': 200, 'body': '!'}

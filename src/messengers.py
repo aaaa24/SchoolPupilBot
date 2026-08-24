@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 import os
+import time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from enum import Enum
+from io import BytesIO
 from typing import Any, Optional
 
 import requests
+from telebot import types
 
 
 @dataclass
@@ -60,6 +63,18 @@ class BaseMessengerClient(ABC):
     def get_chat(self, chat_id: int):
         pass
 
+    @abstractmethod
+    def download_photo(self, photo):
+        pass
+
+    @abstractmethod
+    def materialize_photo(self, chat_id: int, data: bytes, filename: str, content_type: str | None = None):
+        pass
+
+    @abstractmethod
+    def send_photos(self, chat_id: int, photos: list[str], caption: str, reply_markup=None, **kwargs):
+        pass
+
 
 class TelegramMessengerClient(BaseMessengerClient):
     platform = Messenger.TELEGRAM
@@ -79,12 +94,31 @@ class TelegramMessengerClient(BaseMessengerClient):
     def get_chat(self, chat_id: int):
         return self._bot.get_chat(chat_id)
 
+    def download_photo(self, photo):
+        file_info = self._bot.get_file(photo.file_id)
+        return self._bot.download_file(file_info.file_path), None
+
+    def materialize_photo(self, chat_id: int, data: bytes, filename: str, content_type: str | None = None):
+        photo = BytesIO(data)
+        photo.name = filename
+        message = self._bot.send_photo(chat_id, photo=photo)
+        return message.photo[-1].file_id
+
+    def send_photos(self, chat_id: int, photos: list[str], caption: str, reply_markup=None, **kwargs):
+        if len(photos) == 1:
+            return self._bot.send_photo(chat_id, photo=photos[0], caption=caption, reply_markup=reply_markup, **kwargs)
+
+        for start in range(0, len(photos), 10):
+            media = [types.InputMediaPhoto(photo) for photo in photos[start:start + 10]]
+            self._bot.send_media_group(chat_id, media)
+        return self._bot.send_message(chat_id, caption, reply_markup=reply_markup, **kwargs)
+
 
 class MaxMessengerClient(BaseMessengerClient):
     platform = Messenger.MAX
 
     def __init__(self):
-        self.base_url = os.getenv('MAX_API_BASE_URL', 'https://platform-api.max.ru')
+        self.base_url = os.getenv('MAX_API_BASE_URL', 'https://platform-api2.max.ru')
         self.token = os.getenv('MAX_BOT_TOKEN')
         self._me_id = None
         self._active_callback_id = None
@@ -120,14 +154,16 @@ class MaxMessengerClient(BaseMessengerClient):
 
         return [{'type': 'inline_keyboard', 'payload': {'buttons': keyboard}}]
 
-    def _build_message_body(self, text: Optional[str] = None, **kwargs):
+    def _build_message_body(self, text: Optional[str] = None, attachments=None, **kwargs):
         body = {}
         if text is not None:
             body['text'] = text
 
-        attachments = self._build_attachments(kwargs.get('reply_markup'))
+        keyboard_attachments = self._build_attachments(kwargs.get('reply_markup'))
         if attachments is not None:
-            body['attachments'] = attachments
+            body['attachments'] = attachments + (keyboard_attachments or [])
+        elif keyboard_attachments is not None:
+            body['attachments'] = keyboard_attachments
 
         parse_mode = kwargs.get('parse_mode')
         if parse_mode:
@@ -207,8 +243,65 @@ class MaxMessengerClient(BaseMessengerClient):
         return response.json()
 
     def send_photo(self, chat_id, photo, caption=None, **kwargs):
-        text = caption or ''
-        return self.send_message(chat_id, text, **kwargs)
+        return self.send_photos(chat_id, [photo], caption or '', **kwargs)
+
+    def download_photo(self, photo):
+        if not getattr(photo, 'url', None):
+            raise ValueError('У фотографии MAX отсутствует URL для скачивания')
+        response = requests.get(photo.url, timeout=15)
+        response.raise_for_status()
+        return response.content, response.headers.get('Content-Type')
+
+    def upload_photo(self, data: bytes, filename: str, content_type: str | None = None):
+        response = self._request('POST', '/uploads', params={'type': 'image'})
+        response.raise_for_status()
+        upload_url = response.json()['url']
+        response = requests.post(
+            upload_url,
+            files={'data': (filename, data, content_type or 'image/jpeg')},
+            timeout=30,
+        )
+        response.raise_for_status()
+        photos = response.json().get('photos')
+        if not photos:
+            raise RuntimeError('MAX не вернул токен загруженного изображения')
+        token = tuple(photos.values())[0]['token']
+        return token
+
+    def materialize_photo(self, chat_id: int, data: bytes, filename: str, content_type: str | None = None):
+        token = self.upload_photo(data, filename, content_type)
+        self.send_photos(chat_id, [token], '', reply_markup=None)
+        return token
+
+    def send_photos(self, chat_id: int, photos: list[str], caption: str, reply_markup=None, **kwargs):
+        chunk_size = 11 if reply_markup else 12
+        result = None
+        for start in range(0, len(photos), chunk_size):
+            is_last_chunk = start + chunk_size >= len(photos)
+            attachments = [{'type': 'image', 'payload': {'token': photo}} for photo in photos[start:start + chunk_size]]
+            payload = self._build_message_body(
+                caption if is_last_chunk else '',
+                attachments=attachments,
+                reply_markup=reply_markup if is_last_chunk else None,
+                **kwargs,
+            )
+            delay = 1
+            for attempt in range(5):
+                response = self._request(
+                    'POST',
+                    '/messages',
+                    params={'chat_id': chat_id},
+                    headers={'Content-Type': 'application/json'},
+                    json=payload,
+                )
+                if response.ok:
+                    result = response.json()
+                    break
+                if response.status_code != 400 or 'attachment.not.ready' not in response.text or attempt == 4:
+                    response.raise_for_status()
+                time.sleep(delay)
+                delay *= 2
+        return result
 
     def answer_callback_query(self, callback_query_id: str, **kwargs):
         callback_id = callback_query_id or self._active_callback_id
@@ -265,8 +358,15 @@ class AttrDict:
             setattr(self, k, v)
 
 
+class UnifiedPhoto:
+    def __init__(self, file_id: str, url: Optional[str] = None):
+        self.file_id = file_id
+        self.url = url
+
+
 class UnifiedMessage:
-    def __init__(self, *, messenger: Messenger, user: MessengerUser, chat: MessengerChat, text: str, context: Any = None):
+    def __init__(self, *, messenger: Messenger, user: MessengerUser, chat: MessengerChat, text: Optional[str], context: Any = None,
+                 photos=None, caption: Optional[str] = None):
         self.messenger = messenger
         self.from_user = AttrDict(
             id=user.id,
@@ -276,9 +376,9 @@ class UnifiedMessage:
         )
         self.chat = AttrDict(id=chat.id, type=chat.type)
         self.text = text
-        self.caption = None
-        self.content_type = 'text'
-        self.photo = None
+        self.caption = caption
+        self.content_type = 'photo' if photos else 'text'
+        self.photo = photos
         self.entities = []
         self.reply_to_message = None
         self.is_edit_text = False
@@ -308,7 +408,7 @@ class UnifiedInlineKeyboardMarkup:
 
 class UnifiedCallbackMessage:
     def __init__(self, *, messenger: Messenger, user: MessengerUser, chat: MessengerChat, text: str, message_id: Optional[str],
-                 reply_markup=None):
+                 reply_markup=None, photos=None):
         self.messenger = messenger
         self.from_user = AttrDict(
             id=user.id,
@@ -319,8 +419,8 @@ class UnifiedCallbackMessage:
         self.chat = AttrDict(id=chat.id, type=chat.type)
         self.text = text
         self.caption = None
-        self.content_type = 'text'
-        self.photo = None
+        self.content_type = 'photo' if photos else 'text'
+        self.photo = photos
         self.message_id = message_id
         self.id = message_id
         self.reply_markup = reply_markup
