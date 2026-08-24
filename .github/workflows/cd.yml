@@ -49,7 +49,8 @@ jobs:
             YDB_DATABASE=${{ secrets.YDB_DATABASE }}
             YDB_ENDPOINT=${{ secrets.YDB_ENDPOINT }}
             CHANNEL_PERVYE=${{ secrets.CHANNEL_PERVYE }}
-            SUPERADMIN=${{ secrets.SUPERADMIN }}
+            TELEGRAM_SUPERADMIN=${{ secrets.TELEGRAM_SUPERADMIN }}
+            MAX_SUPERADMIN=${{ secrets.MAX_SUPERADMIN }}
             TECHNO_INFO=${{ secrets.TECHNO_INFO }}
             LOG_GROUP_ID=${{ secrets.LOG_GROUP_ID }}
             VK_APP_ID=${{ secrets.VK_APP_ID }}
@@ -79,7 +80,7 @@ jobs:
             YDB_DATABASE=${{ secrets.YDB_DATABASE }}
             YDB_ENDPOINT=${{ secrets.YDB_ENDPOINT }}
             CHANNEL_PERVYE=${{ secrets.CHANNEL_PERVYE }}
-            SUPERADMIN=${{ secrets.SUPERADMIN }}
+            TELEGRAM_SUPERADMIN=${{ secrets.TELEGRAM_SUPERADMIN }}
             YDB_MODE=cloud
             LOG_MODE=cloud
           secrets: |

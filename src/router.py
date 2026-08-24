@@ -378,13 +378,13 @@ list_func = {
     0: handlers.auth_user, 1: handlers.to_menu, 2: timetable.call, 3: timetable.call, 4: changes_tt.call,
     5: subscribe.call, 6: handlers.list_of_cmds, 7: classes.call, 8: teachers.call, 9: helper.get_help,
     10: communication.ask_feedback, 11: handlers.info, 12: statistics.call, 13: users.about_user_cmd,
-    14: users.call, 15: teachers.tt_list_teachers, 16: pay.call
+    14: users.call, 15: teachers.tt_list_teachers, 16: pay.call, 17: handlers.show_id
 }
 
 commands = {
     'start': 0, 'home': 1, 'main': 1, 'menu': 1, 'timetable_edit': 2, 'timetable': 3, 'changes_tt': 4,
     'news': 5, 'commands': 6, 'list': 6, 'classes': 7, 'teachers': 8, 'help': 9, 'feedback': 10, 'info': 11,
-    'stat': 12, 'user': 13, 'users': 14, 'teachers_schedule': 15, 'donate': 16
+    'stat': 12, 'user': 13, 'users': 14, 'teachers_schedule': 15, 'donate': 16, 'id': 17
 }
 
 list_funcs_callback = {

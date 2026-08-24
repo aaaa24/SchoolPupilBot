@@ -135,14 +135,12 @@ def user_id_for_about(m, user, bot, session, *args, **kwargs):
 
 
 def call(m, user, bot, session, *args, **kwargs):
-    import os
-
     text = Phrase.SECTION_USERS
     list_inline_btn = [
         ('👤 О пользователе', 'aboutuser'), ('🧮 Количество пользователей', 'cntusers'),
         ('📊 Статистика', 'stat'), ('🏠 В меню', 'menu')
     ]
-    if user['id'] == int(os.getenv('SUPERADMIN')):
+    if m.is_superadmin:
         list_inline_btn = [('✍ Написать пользователю', 'wuser'), ('📢 Рассылка', 'wusers')] + list_inline_btn
     inline_buttons = [types.InlineKeyboardButton(t[0], callback_data=t[1]) for t in list_inline_btn]
     inline_kb = types.InlineKeyboardMarkup(row_width=1).add(*inline_buttons)
