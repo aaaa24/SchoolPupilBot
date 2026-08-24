@@ -32,8 +32,6 @@ def info(m, user, bot, session, *args, **kwargs):
 
 
 def auth_user(m, user, bot, session, *args, **kwargs):
-    import os
-
     list_inline_btn = [
         [('🗓 Расписание', 'tt'), ('🎓 Классы', 'cl')],
         ('📝 Изменения в расписании', 'chtt'),
@@ -42,7 +40,7 @@ def auth_user(m, user, bot, session, *args, **kwargs):
         ('💳 Поддержать разработчика', 'pay'),
         ('ℹ️ Информация', 'inf')
     ]
-    if m.from_user.id == int(os.getenv('SUPERADMIN')):
+    if m.is_superadmin:
         list_inline_btn.append(('👥 Пользователи', 'users'))
     inline_kb = create_inline_kb(list_inline_btn)
 
@@ -75,14 +73,17 @@ def list_of_cmds(m, user, bot, session, *args, **kwargs):
 /teachers_schedule – расписание учителей;
 /news – подписка на новости школы;
 /feedback – обратная связь;
-/info – информация о боте.'''
+/info – информация о боте;
+/id – ваш ID.'''
 
     bot.send_message(m.chat.id, text)
 
 
-def to_menu(m, user, bot, session, *args, **kwargs):
-    import os
+def show_id(m, user, bot, session, *args, **kwargs):
+    bot.send_message(m.chat.id, f'Ваш ID: {m.from_user.id}')
 
+
+def to_menu(m, user, bot, session, *args, **kwargs):
     list_inline_btn = [
         [('🗓 Расписание', 'tt'), ('🎓 Классы', 'cl')],
         ('📝 Изменения в расписании', 'chtt'),
@@ -91,7 +92,7 @@ def to_menu(m, user, bot, session, *args, **kwargs):
         ('💳 Поддержать разработчика', 'pay'),
         ('ℹ️ Информация', 'inf')
     ]
-    if m.from_user.id == int(os.getenv('SUPERADMIN')):
+    if m.is_superadmin:
         list_inline_btn.append(('👥 Пользователи', 'users'))
     inline_kb = create_inline_kb(list_inline_btn)
 

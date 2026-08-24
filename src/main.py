@@ -90,6 +90,7 @@ def user_verif(m, session):
     logger.debug('Запущена функция user_verif', extra={'time_since_launch': t1 - t0})
 
     messenger = m.messenger
+    m.is_superadmin = m.from_user.id == messenger.superadmin_id
     user = m.json['from']
     users_table = get_users_table(messenger)
     result = session.transaction().execute(
