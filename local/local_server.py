@@ -5,7 +5,7 @@ from datetime import datetime
 from dotenv import load_dotenv
 from flask import Flask, request, jsonify
 
-load_dotenv('.env')
+load_dotenv(os.path.join(os.path.dirname(__file__), '.env'))
 
 from index import handler
 

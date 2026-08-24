@@ -35,6 +35,11 @@ class Messenger(Enum):
     def table_name(self) -> str:
         return f'users_{self.value}'
 
+    @property
+    def superadmin_id(self) -> Optional[int]:
+        value = os.getenv(f'{self.value.upper()}_SUPERADMIN')
+        return int(value) if value else None
+
 
 class BaseMessengerClient(ABC):
     platform: Messenger

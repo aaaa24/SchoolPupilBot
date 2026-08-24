@@ -130,7 +130,7 @@ def send_newsletter():
         r = r[-1:]
 
     if users:
-        bot.send_message(int(os.getenv('SUPERADMIN')),
+        bot.send_message(int(os.getenv('TELEGRAM_SUPERADMIN')),
                          'Начало рассылки новостей',
                          disable_notification=True)
 
@@ -248,7 +248,7 @@ def send_newsletter():
     )
 
     if users:
-        bot.send_message(int(os.getenv('SUPERADMIN')),
+        bot.send_message(int(os.getenv('TELEGRAM_SUPERADMIN')),
                          f'Новости успешно отправлены. Количество новостей: {len(r)}. Количество подписчиков: {len(users)}',
                          disable_notification=True)
     print('OK')
