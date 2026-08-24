@@ -3,6 +3,7 @@ import time
 from telebot import types, apihelper
 
 from messenger_context import get_messenger_from_m, get_users_table
+from messengers import ScreenState, force_new_screen
 
 
 def get_inline_button(button):
@@ -54,24 +55,15 @@ def find_callback_data(message, text):
     return data
 
 
-def send_photo(bot, m, text, photo_id, inline_kb, new_message=False, **kwargs):
-    if hasattr(m, 'message'):
-        suffixes(bot, m, text, inline_kb, **kwargs)
-        if m.message.content_type == 'photo':
-            if not ('$new' in m.data or '$sdel' in m.data or new_message):
-                photo = types.InputMediaPhoto(photo_id, caption=text, **kwargs)
-                return bot.edit_message_media(photo, m.message.chat.id, m.message.id, reply_markup=inline_kb)
-        m = m.message
-
-    return bot.send_photo(m.chat.id, caption=text, photo=photo_id, reply_markup=inline_kb, **kwargs)
-
-
 def send_text(bot, m, text, inline_kb, new_message=False, **kwargs):
     if hasattr(m, 'message'):
         suffixes(bot, m, text, inline_kb, **kwargs)
-        if m.message.content_type == 'text':
-            if not ('$new' in m.data or '$sdel' in m.data or new_message):
-                return bot.edit_message_text(text, m.message.chat.id, m.message.id, reply_markup=inline_kb, **kwargs)
+        force_new = force_new_screen(m.data) or new_message
+        if m.message.content_type == 'text' and not force_new:
+            return bot.edit_message_text(text, m.message.chat.id, m.message.id, reply_markup=inline_kb, **kwargs)
+        if not kwargs and hasattr(bot, 'render_screen'):
+            state = ScreenState(chat_id=m.message.chat.id, message_id=m.message.id, content_type=m.message.content_type)
+            return bot.render_screen(state, text, [], reply_markup=inline_kb, force_new=force_new)
         m = m.message
 
     return bot.send_message(m.chat.id, text, reply_markup=inline_kb, **kwargs)
