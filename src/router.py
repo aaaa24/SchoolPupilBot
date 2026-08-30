@@ -1,5 +1,6 @@
 import re
 
+import album_ui
 import changes_tt
 import classes
 import cmd_recognition
@@ -229,10 +230,6 @@ def chtt_callback(callback_query, user, bot, session, *args, **kwargs):
         function = changes_tt.get_date
     elif quert_split[0] == 'chtt' and quert_split[1].count('.') == 2 and quert_split[1].replace('.', '').isdigit():
         function = changes_tt.specific_date
-    elif quert_without == 'achtt':
-        function = changes_tt.get_photo
-    elif quert_split[0] == 'achtt' and quert_split[1].count('.') == 2 and quert_split[1].replace('.', '').isdigit():
-        function = changes_tt.specific_edit_date
     elif quert_without == 'subchtt':
         function = changes_tt.subscribe
     elif quert_split[0] == 'subchtt':
@@ -240,13 +237,6 @@ def chtt_callback(callback_query, user, bot, session, *args, **kwargs):
             function = changes_tt.on_subscribe
         elif quert_split[1] == 'off':
             function = changes_tt.off_subscribe
-    elif quert_split[0] == 'delchtt':
-        if len(quert_split) == 2:
-            function = changes_tt.confirmation_del_changes_tt
-        elif len(quert_split) == 3:
-            function = changes_tt.del_changes_tt
-    elif quert_split[0] == 'echtt':
-        function = changes_tt.edit_changes_tt
 
     kwargs['logger'].debug('Определена функция для обработки нажатия', extra={'function': function})
     if function:
@@ -327,6 +317,35 @@ def comm_callback(callback_query, user, bot, session, *args, **kwargs):
         function(callback_query, user, bot, session, *args, **kwargs)
 
 
+def album_callback(callback_query, user, bot, session, *args, **kwargs):
+    if not user['admin']:
+        return
+
+    query = callback_query.data.split('$')[0].split('_')
+    section = album_ui.sections.get(query[1])
+    if section is None or len(query) < 4:
+        return
+
+    scope, op = query[2], query[3]
+    position = int(query[4]) if len(query) > 4 else 1
+
+    operations = {
+        'ed': (album_ui.edit_screen, (section, scope, position)),
+        'up': (album_ui.move_photo, (section, scope, position, -1)),
+        'dn': (album_ui.move_photo, (section, scope, position, 1)),
+        'add': (album_ui.ask_photos, (section, scope)),
+        'd1': (album_ui.confirm_delete_one, (section, scope, position)),
+        'dd1': (album_ui.delete_one, (section, scope, position)),
+        'dal': (album_ui.confirm_delete_all, (section, scope)),
+        'ddal': (album_ui.delete_all, (section, scope)),
+    }
+    function, extra = operations.get(op, (None, ()))
+
+    kwargs['logger'].debug('Определена функция для обработки нажатия', extra={'function': function})
+    if function:
+        function(callback_query, user, bot, session, *extra, *args, **kwargs)
+
+
 def users_callback(callback_query, user, bot, session, *args, **kwargs):
     query = callback_query.data
     quert_without = query.split('$')[0]
@@ -403,8 +422,7 @@ list_funcs_callback = {
     'atttea': tea_callback, 'scltea': tea_callback, 'dtttea': tea_callback, 'fitttea': tea_callback,
     'tttea': tea_callback, 'listtttea': tea_callback, 'ftttea': tea_callback, 'infofindtea': tea_callback,
     'ttfindtea': tea_callback,
-    'chtt': chtt_callback, 'dchtt': chtt_callback, 'achtt': chtt_callback, 'subchtt': chtt_callback,
-    'delchtt': chtt_callback, 'echtt': chtt_callback,
+    'chtt': chtt_callback, 'dchtt': chtt_callback, 'subchtt': chtt_callback,
     'news': news_callback,
     'hlp': help_callback,
     'fback': comm_callback, 'afback': comm_callback, 'ans': comm_callback, 'safback': comm_callback,
@@ -412,16 +430,13 @@ list_funcs_callback = {
     'chbtn': comm_callback, 'rwusers': comm_callback, 'swadms': comm_callback, 'swusers': comm_callback,
     'users': users_callback, 'cntusers': users_callback, 'aboutuser': users_callback, 'userphoto': users_callback,
     'stat': users_callback,
-    'pay': pay_callback
+    'pay': pay_callback, 'alb': album_callback
 }
 
 phrases_answer = {
     Phrase.EDIT_TT: timetable.writing, Phrase.ADD_TEA: teachers.writing_new,
     Phrase.INPUT_DATE: changes_tt.send_date, Phrase.IT_IS_SUNDAY: changes_tt.send_date,
     Phrase.ERROR_DATE: changes_tt.send_date,
-    Phrase.EDIT_CHANGES_NOT_DATE: changes_tt.add_changes_tt,
-    Phrase.NEED_CAPTION: changes_tt.add_changes_tt,
-    Phrase.EDIT_IT_IS_SUNDAY: changes_tt.add_changes_tt,
     Phrase.ENTER_CLASS_CABINET: classes.edit_cabinet,
     Phrase.NOT_EDIT_CLASS_CABINET: classes.edit_cabinet,
     Phrase.ENTER_COUNT_PUPILS: classes.edit_count, Phrase.NOT_EDIT_COUNT_PUPILS: classes.edit_count,
@@ -442,7 +457,7 @@ phrases_answer = {
 
 level_answer = {
     'ett_{p}_{ch}_{abb}': timetable.writing, 'atea': teachers.writing_new,
-    'dchtt': changes_tt.send_date, 'achtt_{date}': changes_tt.add_changes_tt,
+    'dchtt': changes_tt.send_date, 'alb_{text}': album_ui.accept_photos,
     'ncl_{p}_{ch}': classes.edit_cabinet, 'ccl_{p}_{ch}': classes.edit_count,
     'tcl_{p}_{ch}': classes.edit_class_teacher,
     'afback_{u_id}_{m_id}_{m_id}': communication.confirmation_answer_to_user,
