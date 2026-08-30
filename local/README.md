@@ -46,6 +46,14 @@ pip install -r local/requirements.txt
 python local/local_server.py
 ```
 
+### 7. Запустить рассылку или статистику вручную (эмуляция триггеров Cloud Functions):
+
+```bash
+curl -X POST http://localhost:8080/trigger/mailing_newsletter
+curl -X POST http://localhost:8080/trigger/mailing_changes_tt
+curl -X POST http://localhost:8080/trigger/daily_statistics
+```
+
 ---
 
 ### Настройка в PyCharm

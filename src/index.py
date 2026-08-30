@@ -230,5 +230,11 @@ def handler(event, context):
                 from changes_tt import mailing_changes_tt
                 mailing_changes_tt(clients, session, logger)
                 session.closing()
+        elif event['details']['payload'] == 'mailing_newsletter':
+            session, _ = set_connect(50)
+            if not session is None:
+                from newsletter import send_newsletter
+                send_newsletter(clients, session, logger)
+                session.closing()
 
     return {'statusCode': 200, 'body': '!'}

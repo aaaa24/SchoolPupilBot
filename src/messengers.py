@@ -49,9 +49,8 @@ class SentMessage:
         self.content_type = content_type
 
 
-# Суффикс отмечает кнопки экрана, у которого фотографии отправлены отдельно от подписи с клавиатурой
-# (медиагруппа в Telegram). Такой экран нельзя изменить, не оторвав фотографии от подписи,
-# поэтому по нажатию его кнопок всегда отправляется новый экран
+TELEGRAM_CAPTION_LIMIT = 1024
+
 DETACHED_SUFFIX = '$grp'
 
 
@@ -195,22 +194,35 @@ class TelegramMessengerClient(BaseMessengerClient):
         stream.name = item.filename or 'photo.jpg'
         return stream
 
+    def _input_media(self, item: MediaItem, caption=None, parse_mode=None):
+        if caption is None:
+            return types.InputMediaPhoto(self._input_photo(item))
+        return types.InputMediaPhoto(self._input_photo(item), caption=caption, parse_mode=parse_mode)
+
     def send_photos(self, chat_id: int, media: list[MediaItem], caption: str, reply_markup=None, **kwargs):
         if not media:
             return self._bot.send_message(chat_id, caption, reply_markup=reply_markup, **kwargs)
 
         if len(media) == 1:
-            message = self._bot.send_photo(chat_id, photo=self._input_photo(media[0]), caption=caption,
+            message = self._bot.send_photo(chat_id, photo=self._input_photo(media[0]), caption=caption or None,
                                            reply_markup=reply_markup, **kwargs)
             media[0].id = message.photo[-1].file_id
             return message
 
+        caption_in_group = bool(caption) and reply_markup is None and len(caption) <= TELEGRAM_CAPTION_LIMIT
+        last_message = None
         for start in range(0, len(media), 10):
             chunk = media[start:start + 10]
-            messages = self._bot.send_media_group(chat_id, [types.InputMediaPhoto(self._input_photo(item))
-                                                            for item in chunk])
+            group = [self._input_media(item, caption if caption_in_group and start == 0 and number == 0 else None,
+                                       kwargs.get('parse_mode'))
+                     for number, item in enumerate(chunk)]
+            messages = self._bot.send_media_group(chat_id, group)
             for item, message in zip(chunk, messages):
                 item.id = message.photo[-1].file_id
+            last_message = messages[-1]
+
+        if caption_in_group or not caption:
+            return last_message
         return self._bot.send_message(chat_id, caption, reply_markup=mark_detached(reply_markup), **kwargs)
 
     def send_message_to_user(self, user_id, text, media=None, reply_markup=None, **kwargs):
@@ -469,7 +481,7 @@ class MaxMessengerClient(BaseMessengerClient):
         for start in range(0, len(media), chunk_size):
             is_last_chunk = start + chunk_size >= len(media)
             payload = self._build_message_body(
-                caption if is_last_chunk else '',
+                (caption or None) if is_last_chunk else None,
                 attachments=self._image_attachments(media[start:start + chunk_size]),
                 reply_markup=reply_markup if is_last_chunk else None,
                 **kwargs,
