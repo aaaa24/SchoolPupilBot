@@ -3,6 +3,7 @@ from telebot import types
 
 from constants import Phrase, months
 from messenger_context import get_messenger_from_kwargs, get_users_table
+from messengers import Messenger
 from utils import send_text, edit_level
 
 
@@ -136,10 +137,9 @@ def user_id_for_about(m, user, bot, session, *args, **kwargs):
 
 def call(m, user, bot, session, *args, **kwargs):
     text = Phrase.SECTION_USERS
-    list_inline_btn = [
-        ('👤 О пользователе', 'aboutuser'), ('🧮 Количество пользователей', 'cntusers'),
-        ('📊 Статистика', 'stat'), ('🏠 В меню', 'menu')
-    ]
+    list_inline_btn = [('🧮 Количество пользователей', 'cntusers'), ('📊 Статистика', 'stat'), ('🏠 В меню', 'menu')]
+    if get_messenger_from_kwargs(kwargs) is Messenger.TELEGRAM:
+        list_inline_btn = [('👤 О пользователе', 'aboutuser')] + list_inline_btn
     if m.is_superadmin:
         list_inline_btn = [('✍ Написать пользователю', 'wuser'), ('📢 Рассылка', 'wusers')] + list_inline_btn
     inline_buttons = [types.InlineKeyboardButton(t[0], callback_data=t[1]) for t in list_inline_btn]

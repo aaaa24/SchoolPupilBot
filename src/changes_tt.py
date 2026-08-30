@@ -8,8 +8,7 @@ from telebot import types
 import constants
 from constants import Phrase
 from messenger_context import get_messenger_from_kwargs, get_users_table
-from messengers import BaseMessengerClient, MediaItem, Messenger, ScreenState, TelegramMessengerClient, \
-    force_new_screen
+from messengers import MediaItem, Messenger, ScreenState, force_new_screen, get_client
 from storage import ObjectStorage
 from utils import edit_level, suffixes
 
@@ -27,12 +26,6 @@ def _media_column(messenger):
         Messenger.TELEGRAM: 'tg_file_id',
         Messenger.MAX: 'max_token',
     }[Messenger(messenger)]
-
-
-def _get_client(bot):
-    if isinstance(bot, BaseMessengerClient):
-        return bot
-    return TelegramMessengerClient(bot)
 
 
 def _get_changes(date, session):
@@ -68,7 +61,7 @@ def send_text(bot, mm, text, inline_kb):
     else:
         chat_id = mm.chat.id
 
-    client = _get_client(bot)
+    client = get_client(bot)
     return client.render_screen(_screen_state(mm, chat_id), text, [], reply_markup=inline_kb,
                                 force_new=_force_new(mm))
 
@@ -77,7 +70,7 @@ def _send_changes(bot, mm, chat_id, date, text, inline_kb, session, logger):
     if hasattr(mm, 'message'):
         suffixes(bot, mm, text, inline_kb)
 
-    client = _get_client(bot)
+    client = get_client(bot)
     messenger = client.platform
     media_column = _media_column(messenger)
     storage = None
@@ -95,8 +88,12 @@ def _send_changes(bot, mm, chat_id, date, text, inline_kb, session, logger):
             item.filename = filename
         media.append((change, item))
 
-    result = client.render_screen(_screen_state(mm, chat_id), text, [item for _, item in media],
-                                  reply_markup=inline_kb, force_new=_force_new(mm))
+    if mm is None:
+        result = client.send_message_to_user(chat_id, text, media=[item for _, item in media],
+                                             reply_markup=inline_kb)
+    else:
+        result = client.render_screen(_screen_state(mm, chat_id), text, [item for _, item in media],
+                                      reply_markup=inline_kb, force_new=_force_new(mm))
 
     for change, item in media:
         if change.get(media_column) or not item.id:
@@ -225,9 +222,12 @@ def mailing_changes_tt(clients, session, logger, *args, **kwargs):
         inline_buttons = [types.InlineKeyboardButton(t[0], callback_data=t[1]) for t in list_inline_btn]
         inline_kb = types.InlineKeyboardMarkup(row_width=1).add(*inline_buttons)
 
+        from main import set_log_messenger
+
         total_count = 0
         final_count = 0
         for messenger, bot in clients.items():
+            set_log_messenger(messenger)
             request = _execute(
                 session,
                 f'SELECT id FROM {get_users_table(messenger)} WHERE send_changes_tt = true;'
@@ -238,10 +238,10 @@ def mailing_changes_tt(clients, session, logger, *args, **kwargs):
                 try:
                     _send_changes(bot, None, user_id, sql_date, text, inline_kb, session, logger)
                 except Exception:
-                    logger.exception('Не удалось отправить изменения в расписании',
-                                     extra={'user_id': user_id, 'messenger': messenger.value})
+                    logger.exception('Не удалось отправить изменения в расписании', extra={'user_id': user_id})
                 else:
                     final_count += 1
+        set_log_messenger(None)
         log_info['total_count'] = total_count
         log_info['final_count'] = final_count
         log_info['is_sent'] = True
@@ -394,7 +394,7 @@ def add_changes_tt(m, user, bot, session, *args, **kwargs):
                 flag = 0
                 list_inline_btn = [('← Назад', 'chtt')]
             else:
-                client = _get_client(bot)
+                client = get_client(bot)
                 storage = ObjectStorage()
                 for photo in photos:
                     data, content_type = client.download_photo(photo)

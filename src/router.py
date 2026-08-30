@@ -14,6 +14,8 @@ import teachers
 import timetable
 import users
 from constants import Phrase
+from messenger_context import get_messenger_from_kwargs
+from messengers import Messenger
 
 
 def text_handling(m, user, bot, session, *args, **kwargs):
@@ -303,11 +305,11 @@ def comm_callback(callback_query, user, bot, session, *args, **kwargs):
         function = communication.another_message_to_user
     elif quert_split[0] == 'wuser' and len(quert_split) == 3:
         function = communication.confirmation_message
-    elif quert_split[0] == 'safback' and len(quert_split) == 3:
+    elif quert_split[0] == 'safback' and len(quert_split) in (3, 4):
         function = communication.answer_to_feedback
     elif quert_without == 'wusers':
         function = communication.ask_text_to_users
-    elif quert_split[0] == 'wusers' and quert_split[1].isdigit():
+    elif quert_split[0] == 'wusers' and len(quert_split) == 2:
         function = communication.confirmation_message_to_users
     elif quert_split[0] == 'chbtn':
         function = communication.choose_btn
@@ -331,13 +333,15 @@ def users_callback(callback_query, user, bot, session, *args, **kwargs):
     quert_split = quert_without.split('_')
     function = None
 
+    is_telegram = get_messenger_from_kwargs(kwargs) is Messenger.TELEGRAM
+
     if quert_without == 'users':
         function = users.call
     elif quert_without == 'cntusers':
         function = users.count_users
-    elif quert_without == 'aboutuser':
+    elif quert_without == 'aboutuser' and is_telegram:
         function = users.user_id_for_about
-    elif quert_without == 'userphoto':
+    elif quert_without == 'userphoto' and is_telegram:
         function = users.get_user_photos
     elif quert_without == 'stat':
         function = statistics.call
@@ -373,6 +377,8 @@ short_cmds = {
 }
 
 admin_commands = ['timetable_edit', 'stat', 'user', 'users']
+
+telegram_only_commands = ['user']
 
 list_func = {
     0: handlers.auth_user, 1: handlers.to_menu, 2: timetable.call, 3: timetable.call, 4: changes_tt.call,

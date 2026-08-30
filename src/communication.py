@@ -1,10 +1,63 @@
 import re
+import time
 
 from telebot import types
 
 from constants import Phrase
 from messenger_context import get_messenger_from_kwargs, get_users_table
-from utils import edit_level, find_callback_data, send_text
+from messengers import MediaItem, Messenger, get_client
+from utils import edit_level, find_callback_data, pack_id, send_text, unpack_id
+
+
+def _draft_content(bot, message):
+    text = message.text if message.text else message.caption
+    media = [MediaItem(id=photo.file_id) for photo in (message.photo or [])]
+
+    client = get_client(bot)
+    if client.platform is Messenger.MAX and not media and getattr(message, 'message_id', None):
+        body = client.get_message(message.message_id).get('body') or {}
+        text = body.get('text') or text
+        media = [MediaItem(id=attachment['payload']['token'])
+                 for attachment in body.get('attachments') or []
+                 if attachment.get('type') == 'image' and attachment.get('payload', {}).get('token')]
+
+    return text or '', media
+
+
+def _send_draft(bot, user_id, text, media, inline_kb):
+    return get_client(bot).send_message_to_user(user_id, text, media=media, reply_markup=inline_kb)
+
+
+def _answer_content(bot, m, answer_id):
+    reply = getattr(m.message, 'reply_to_message', None)
+    if reply is not None and reply.text:
+        return reply.text, reply.message_id
+
+    body = get_client(bot).get_message(unpack_id(answer_id)).get('body') or {}
+    return body.get('text') or '', body.get('mid')
+
+
+def _has_hide_button(kwargs):
+    return get_messenger_from_kwargs(kwargs) is Messenger.TELEGRAM
+
+
+def _is_known_user(user_id, session, kwargs):
+    import ydb
+    result = session.transaction().execute(
+        f'SELECT id FROM {get_users_table(get_messenger_from_kwargs(kwargs))} WHERE id = {user_id};',
+        commit_tx=True,
+        settings=ydb.BaseRequestSettings().with_timeout(3).with_operation_timeout(2)
+    )
+    return bool(result[0].rows)
+
+
+def _forward_or_copy(bot, chat_id, m):
+    client = get_client(bot)
+    try:
+        return client.forward_message(chat_id, m.chat.id, m.message_id)
+    except Exception:
+        text, media = _draft_content(bot, m)
+        return client.send_photos(chat_id, media, text)
 
 
 def last_user(m, user, bot, session, *args, **kwargs):
@@ -26,13 +79,17 @@ def last_user(m, user, bot, session, *args, **kwargs):
     else:
         text = Phrase.NOT_ID_LAST_USER
 
-    inline_kb = types.InlineKeyboardMarkup(row_width=1).add(
-        types.InlineKeyboardButton('❌ Скрыть сообщение', callback_data=f'cncl$del{m.message_id}'))
+    inline_kb = None
+    if _has_hide_button(kwargs):
+        inline_kb = types.InlineKeyboardMarkup(row_width=1).add(
+            types.InlineKeyboardButton('❌ Скрыть сообщение', callback_data=f'cncl$del{m.message_id}'))
     send_text(bot, m, text, inline_kb, reply_to_message_id=m.message_id, parse_mode='HTML')
 
 
 def mailing(m, user, bot, session, *args, **kwargs):
+    logger = kwargs['logger']
     users = kwargs['users']
+    draft = m.message.reply_to_message
     btns = [b[0] for b in m.message.reply_markup.keyboard[:-6]]
     count = 0
 
@@ -40,39 +97,38 @@ def mailing(m, user, bot, session, *args, **kwargs):
     inline_buttons_admin = [types.InlineKeyboardButton(t[0], callback_data=t[1]) for t in list_inline_btn]
     inline_kb_admin = types.InlineKeyboardMarkup(row_width=1).add(*inline_buttons_admin)
 
-    print('Рассылка начата. Количество получателей:', len(users))
+    draft_text, draft_media = _draft_content(bot, draft)
+    if not draft_text and not draft_media:
+        logger.error('Не удалось получить сообщение для рассылки')
+        send_text(bot, m, Phrase.ERROR, inline_kb_admin)
+        return
+
+    logger.info('Рассылка начата', extra={'count_users': len(users)})
     text = Phrase.START_MAILING.format(text=f'0/{len(users)}')
-    info_mailing = send_text(bot, m, text, inline_kb_admin, reply_to_message_id=m.message.reply_to_message.message_id)
+    info_mailing = send_text(bot, m, text, inline_kb_admin, reply_to_message_id=unpack_id(draft.message_id))
 
     inline_kb = types.InlineKeyboardMarkup(row_width=1).add(*btns)
-
-    if m.message.reply_to_message.content_type == 'text':
-        text_users = m.message.reply_to_message.text
-    elif m.message.reply_to_message.content_type == 'photo':
-        caption = m.message.reply_to_message.caption
-        photo = m.message.reply_to_message.photo[-1].file_id
+    last_edit = 0
 
     for user_id in users:
         try:
-            if m.message.reply_to_message.content_type == 'text':
-                bot.send_message(user_id, text_users, reply_markup=inline_kb)
-            elif m.message.reply_to_message.content_type == 'photo':
-                bot.send_photo(user_id, caption=caption, photo=photo, reply_markup=inline_kb)
-        except:
-            import traceback
-            traceback.print_exc()
+            _send_draft(bot, user_id, draft_text, draft_media, inline_kb)
+        except Exception:
+            logger.exception('Не удалось отправить сообщение рассылки', extra={'user_id': user_id})
         else:
             count += 1
-            text = Phrase.START_MAILING.format(
-                text=f'{count}/{len(users)}. Последний пользователь с ID <code>{user_id}</code>')
-            bot.edit_message_text(text, info_mailing.chat.id, info_mailing.message_id,
-                                  reply_markup=inline_kb_admin, parse_mode='HTML')
+            if time.time() - last_edit >= 1:
+                last_edit = time.time()
+                text = Phrase.START_MAILING.format(
+                    text=f'{count}/{len(users)}. Последний пользователь с ID <code>{user_id}</code>')
+                bot.edit_message_text(text, info_mailing.chat.id, info_mailing.message_id,
+                                      reply_markup=inline_kb_admin, parse_mode='HTML')
 
     list_inline_btn = [('Новое сообщение', 'wusers$new'), ('🏠 В меню', 'menu$new')]
     inline_buttons_admin = [types.InlineKeyboardButton(t[0], callback_data=t[1]) for t in list_inline_btn]
     inline_kb_admin = types.InlineKeyboardMarkup(row_width=1).add(*inline_buttons_admin)
 
-    print(f'Рассылка завершена. Количество пользователей, получивших сообщение: {count}/{len(users)}')
+    logger.info('Рассылка завершена', extra={'count_sent': count, 'count_users': len(users)})
     text = Phrase.END_MAILING.format(text=f'{count}/{len(users)}')
     bot.edit_message_text(text, info_mailing.chat.id, info_mailing.message_id, reply_markup=inline_kb_admin)
 
@@ -174,7 +230,7 @@ def confirmation_message_to_users(m, user, bot, session, *args, **kwargs):
     inline_buttons = [types.InlineKeyboardButton(t[0], callback_data=t[1]) for t in list_inline_btn]
     inline_kb = types.InlineKeyboardMarkup(row_width=1).add(*inline_buttons)
 
-    send_text(bot, m, text, inline_kb, reply_to_message_id=message_id, parse_mode='HTML')
+    send_text(bot, m, text, inline_kb, reply_to_message_id=unpack_id(message_id), parse_mode='HTML')
 
 
 def add_button(m, user, bot, session, *args, **kwargs):
@@ -198,7 +254,9 @@ def add_button(m, user, bot, session, *args, **kwargs):
 
         text = Phrase.YES_ADD_BTN.format(text=f'<i>«{text_btn}»</i> с командой <i>{callback_data}</i>')
 
-        list_inline_btn = [(text_btn, callback_data + '$new'), ('❌ Скрыть сообщение', f'cncl$del{m.message_id}')]
+        list_inline_btn = [(text_btn, callback_data + '$new')]
+        if _has_hide_button(kwargs):
+            list_inline_btn.append(('❌ Скрыть сообщение', f'cncl$del{m.message_id}'))
         inline_buttons = [types.InlineKeyboardButton(t[0], callback_data=t[1]) for t in list_inline_btn]
         inline_kb = types.InlineKeyboardMarkup(row_width=1).add(*inline_buttons)
 
@@ -265,7 +323,7 @@ def ask_btns(m, user, bot, session, *args, **kwargs):
 
 
 def ask_btns_to_users(m, user, bot, session, *args, **kwargs):
-    callback_data = f'wusers_{m.message_id}$sdel'
+    callback_data = f'wusers_{pack_id(m.message_id)}$sdel'
     back = 'wusers'
     ask_btns(m, user, bot, session, *args, callback_data=callback_data, back=back, **kwargs)
 
@@ -306,7 +364,7 @@ def get_info_for_reply_to_message(m):
         user_id, message_id, reply_id = split_data[1:4]
     else:
         user_id, message_id = split_data[1:3]
-        reply_id = m.reply_to_message.message_id
+        reply_id = pack_id(m.reply_to_message.message_id)
 
     return user_id, message_id, reply_id
 
@@ -327,16 +385,15 @@ def write_to_user(m, user, bot, session, *args, **kwargs):
     inline_kb = types.InlineKeyboardMarkup(row_width=1).add(*btns)
 
     try:
-        if m.message.reply_to_message.content_type == 'text':
-            bot.send_message(user_id, m.message.reply_to_message.text, reply_markup=inline_kb)
-        elif m.message.reply_to_message.content_type == 'photo':
-            bot.send_photo(user_id, caption=m.message.reply_to_message.caption,
-                           photo=m.message.reply_to_message.photo[-1].file_id, reply_markup=inline_kb)
-    except Exception as e:
+        draft_text, draft_media = _draft_content(bot, m.message.reply_to_message)
+        if not draft_text and not draft_media:
+            raise ValueError('Пустое сообщение для отправки')
+        _send_draft(bot, user_id, draft_text, draft_media, inline_kb)
+    except Exception:
         import traceback
         trace = traceback.format_exc()
-        print(trace)
-        if 'chat not found' in trace:
+        kwargs['logger'].exception('Не удалось отправить сообщение пользователю', extra={'user_id': user_id})
+        if 'chat not found' in trace or '404' in trace:
             text = Phrase.USER_NOT_FOUND.format(u_id=f'<code>{user_id}</code>')
         elif 'bot was blocked by the user' in trace:
             text = Phrase.BOT_WAS_BLOCKED.format(u_id=f'<code>{user_id}</code>')
@@ -377,7 +434,7 @@ def confirmation_message(m, user, bot, session, *args, **kwargs):
     inline_buttons = [types.InlineKeyboardButton(t[0], callback_data=t[1]) for t in list_inline_btn]
     inline_kb = types.InlineKeyboardMarkup(row_width=1).add(*inline_buttons)
 
-    send_text(bot, m, text, inline_kb, reply_to_message_id=message_id, parse_mode='HTML')
+    send_text(bot, m, text, inline_kb, reply_to_message_id=unpack_id(message_id), parse_mode='HTML')
 
 
 def reask_btns_to_user(m, user, bot, session, *args, **kwargs):
@@ -389,7 +446,7 @@ def reask_btns_to_user(m, user, bot, session, *args, **kwargs):
 
 def ask_btns_to_user(m, user, bot, session, *args, **kwargs):
     user_id = args[0]
-    callback_data = f'wuser_{user_id}_{m.message_id}$sdel'
+    callback_data = f'wuser_{user_id}_{pack_id(m.message_id)}$sdel'
     back = f'wuser_{user_id}'
     ask_btns(m, user, bot, session, *args, callback_data=callback_data, back=back, **kwargs)
 
@@ -411,8 +468,11 @@ def ask_text_to_write(m, user, bot, session, *args, **kwargs):
 
     if is_found_id:
         try:
-            bot.get_chat(user_id)
-        except:
+            if get_messenger_from_kwargs(kwargs) is Messenger.TELEGRAM:
+                bot.get_chat(user_id)
+            elif not _is_known_user(user_id, session, kwargs):
+                raise ValueError('Пользователь не найден')
+        except Exception:
             text = Phrase.USER_NOT_FOUND.format(u_id=f'<code>{user_id}</code>')
             list_inline_btn = [('← Назад', 'users'), ('🏠 В меню', 'menu')]
         else:
@@ -448,10 +508,10 @@ def answer_to_afback(m, user, bot, session, *args, **kwargs):
     user_id, message_id, reply_id = args[:3]
     text_admin = Phrase.ANSWER_FROM_USER.format(u_id=f'<code>{m.json["from"]["id"]}</code>')
     inline_kb_admin = types.InlineKeyboardMarkup().row(
-        types.InlineKeyboardButton('✍ Ответить', callback_data=f'afback_{m.chat.id}_{m.message_id}$new'))
-    bot.forward_message(user_id, m.chat.id, m.message_id)
+        types.InlineKeyboardButton('✍ Ответить', callback_data=f'afback_{m.chat.id}_{pack_id(m.message_id)}$new'))
+    _forward_or_copy(bot, user_id, m)
     bot.send_message(user_id, text_admin, reply_markup=inline_kb_admin, parse_mode='HTML',
-                     reply_to_message_id=message_id)
+                     reply_to_message_id=unpack_id(message_id))
 
     text_user = Phrase.ACCEPT_FEEDBACK
     list_inline_btn = [('✍ Ответить ещё', f'ans_{user_id}_{message_id}_{reply_id}'), ('🔄 Новое сообщение', 'fback'),
@@ -471,7 +531,7 @@ def get_answer_to_afback(m, user, bot, session, *args, **kwargs):
         user_id, message_id, reply_id = split_data[1:4]
     else:
         user_id, message_id = split_data[1:3]
-        reply_id = m.message.message_id
+        reply_id = pack_id(m.message.message_id)
     text = Phrase.ASK_ANSWER_TO_AFBACK
     list_inline_btn = [('← Назад', 'inf$new'), ('🏠 В меню', 'menu$new')]
     inline_buttons = [types.InlineKeyboardButton(t[0], callback_data=t[1]) for t in list_inline_btn]
@@ -480,16 +540,17 @@ def get_answer_to_afback(m, user, bot, session, *args, **kwargs):
     edit_level(m, f'ans_{user_id}_{message_id}_{reply_id}', session)
     if hasattr(m, 'message'):
         m = m.message
-    bot.send_message(m.chat.id, text, reply_to_message_id=reply_id, reply_markup=inline_kb)
+    bot.send_message(m.chat.id, text, reply_to_message_id=unpack_id(reply_id), reply_markup=inline_kb)
 
 
 def answer_to_feedback(m, user, bot, session, *args, **kwargs):
     # Обработка ответа админа на сообщение пользователя
 
-    user_id, message_id = m.data.split('$')[0].split('_')[1:3]
-    text = m.message.reply_to_message.text
+    split_data = m.data.split('$')[0].split('_')
+    user_id, message_id = split_data[1:3]
+    text, answer_id = _answer_content(bot, m, split_data[3] if len(split_data) > 3 else None)
     chat = m.message.chat.id
-    reply_id = m.message.reply_to_message.message_id
+    reply_id = pack_id(answer_id)
 
     text_user = Phrase.ANSWER_RECEIVED.format(text=f'<blockquote>{text}</blockquote>')
 
@@ -497,7 +558,8 @@ def answer_to_feedback(m, user, bot, session, *args, **kwargs):
                        ('🏠 В меню', 'menu$new')]
     inline_buttons = [types.InlineKeyboardButton(t[0], callback_data=t[1]) for t in list_inline_btn]
     inline_kb_user = types.InlineKeyboardMarkup(row_width=1).add(*inline_buttons)
-    bot.send_message(user_id, text_user, reply_to_message_id=message_id, reply_markup=inline_kb_user, parse_mode='HTML')
+    bot.send_message(user_id, text_user, reply_to_message_id=unpack_id(message_id), reply_markup=inline_kb_user,
+                     parse_mode='HTML')
 
     text_admin = Phrase.ACCEPT_ANSWER_TO_FEEDBACK
     send_text(bot, m, text_admin, None)
@@ -509,7 +571,7 @@ def confirmation_answer_to_user(m, user, bot, session, *args, **kwargs):
 
     text = Phrase.CONFIRMATION_OF_SEND_ANSWER_TO_USER.format(u_id=f'<code>{user_id}</code>')
 
-    list_inline_btn = [('Отправить', f'safback_{user_id}_{message_id}$sdel'),
+    list_inline_btn = [('Отправить', f'safback_{user_id}_{message_id}_{pack_id(m.message_id)}$sdel'),
                        ('Изменить текст', f'afback_{user_id}_{message_id}_{reply_id}$sdel'), ('❌ Отменить', 'cncl')]
     inline_buttons = [types.InlineKeyboardButton(t[0], callback_data=t[1]) for t in list_inline_btn]
     inline_kb = types.InlineKeyboardMarkup(row_width=1).add(*inline_buttons)
@@ -526,18 +588,18 @@ def get_answer_to_feedback(m, user, bot, session, *args, **kwargs):
         user_id, message_id, reply_id = split_data[1:4]
     else:
         user_id, message_id = split_data[1:3]
-        reply_id = m.message.message_id
+        reply_id = pack_id(m.message.message_id)
 
     text = Phrase.ASK_ANSWER_TO_FEEDBACK
     inline_kb = types.InlineKeyboardMarkup().row(types.InlineKeyboardButton('❌ Отменить', callback_data='cncl'))
 
-    send_text(bot, m, text, inline_kb, reply_to_message_id=reply_id, parse_mode='HTML')
+    send_text(bot, m, text, inline_kb, reply_to_message_id=unpack_id(reply_id), parse_mode='HTML')
     edit_level(m, f'afback_{user_id}_{message_id}_{reply_id}', session)
 
 
 def accept_feedback(m, user, bot, session, *args, **kwargs):
     # Обработка первого сообщения от пользователя
-    import os
+    techno_chat_id = get_messenger_from_kwargs(kwargs).techno_chat_id
 
     text_admin = Phrase.MESSAGE_FROM_USER.format(
         text=f'ID: <code>{m.json["from"]["id"]}</code>\nИмя: {m.json["from"]["first_name"]}' + \
@@ -546,9 +608,9 @@ def accept_feedback(m, user, bot, session, *args, **kwargs):
                  'from'] else '')
     )
     inline_kb_admin = types.InlineKeyboardMarkup().row(
-        types.InlineKeyboardButton('✍ Ответить', callback_data=f'afback_{m.chat.id}_{m.message_id}$new'))
-    bot.forward_message(os.getenv('TECHNO_INFO'), m.chat.id, m.message_id)
-    bot.send_message(os.getenv('TECHNO_INFO'), text_admin, reply_markup=inline_kb_admin, parse_mode='HTML')
+        types.InlineKeyboardButton('✍ Ответить', callback_data=f'afback_{m.chat.id}_{pack_id(m.message_id)}$new'))
+    _forward_or_copy(bot, techno_chat_id, m)
+    bot.send_message(techno_chat_id, text_admin, reply_markup=inline_kb_admin, parse_mode='HTML')
 
     text_user = Phrase.ACCEPT_FEEDBACK
     inline_kb_user = types.InlineKeyboardMarkup().row(

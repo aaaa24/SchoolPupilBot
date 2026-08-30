@@ -2,10 +2,33 @@ from time import time
 
 t0 = time()
 
+import contextvars
 import logging
 import os
 
 from pythonjsonlogger import jsonlogger
+
+_current_messenger = contextvars.ContextVar('messenger', default=None)
+
+
+def set_log_messenger(messenger):
+    _current_messenger.set(messenger)
+
+
+def log_traceback(message):
+    import traceback
+    trace = traceback.format_exc()
+    if logging_mode == 'cloud':
+        trace = trace.replace('\n', '\r')
+    logger.error(f'{message}\n{trace}' if logging_mode == 'local' else f'{message} {trace}')
+
+
+class MessengerFilter(logging.Filter):
+    def filter(self, record):
+        messenger = _current_messenger.get()
+        if messenger is not None:
+            record.messenger = messenger.value
+        return True
 
 
 class YcLoggingFormatter(jsonlogger.JsonFormatter):
@@ -55,6 +78,7 @@ def build_log_formatter(logging_mode):
 logHandler = logging.StreamHandler()
 logging_mode = get_logging_mode()
 logHandler.setFormatter(build_log_formatter(logging_mode))
+logHandler.addFilter(MessengerFilter())
 
 logger = logging.getLogger('schoolpupil')
 logger.propagate = False
@@ -69,9 +93,10 @@ from telebot import TeleBot
 import ydb
 
 import db
+from constants import Phrase
 from messenger_context import get_users_table
 from messengers import Messenger, TelegramMessengerClient
-from router import text_handling, callback_handling, commands, list_func, admin_commands
+from router import text_handling, callback_handling, commands, list_func, admin_commands, telegram_only_commands
 
 logger.debug('Завершён импорт', extra={'time_since_launch': time() - t0, 'duration': time() - t1})
 
@@ -85,7 +110,7 @@ driver.wait(fail_fast=True, timeout=5)
 logger.debug('Созданы bot и driver', extra={'time_since_launch': time() - t0, 'duration': time() - t1})
 
 
-def user_verif(m, session):
+def user_verif(m, session, bot_instance):
     t1 = time()
     logger.debug('Запущена функция user_verif', extra={'time_since_launch': t1 - t0})
 
@@ -121,7 +146,13 @@ def user_verif(m, session):
             user_info = bot.get_chat(user['id'])
             user_id = f'<code>{user_info.id}</code>' if user_info.has_private_forwards else f'<a href="tg://user?id={user_info.id}">{user_info.id}</a>'
             text = text.replace(f'<code>{user["id"]}</code>', user_id)
-            bot.send_message(int(os.getenv('TECHNO_INFO')), text, parse_mode='HTML', disable_notification=True)
+
+        if messenger.techno_chat_id:
+            try:
+                bot_instance.send_message(messenger.techno_chat_id, text, parse_mode='HTML',
+                                          disable_notification=True)
+            except Exception:
+                logger.exception('Не удалось отправить уведомление о новом пользователе')
 
         result = {'admin': False, 'id': user['id'], 'level': 'menu', 'send_news': False, 'send_changes_tt': False}
         new_user = {
@@ -162,8 +193,8 @@ def process_max_callback(max_message, max_client):
         return
 
     max_client.begin_callback(max_message.id, max_message.message.text, max_message.message.photo,
-                              max_message.message.reply_markup)
-    user = user_verif(max_message, session)
+                              max_message.message.reply_markup, max_message.message.message_id)
+    user = user_verif(max_message, session, max_client)
     callback_handling(max_message, user, max_client, session, logger=logger,
                       context=max_message.context, messenger=max_message.messenger)
     max_client.answer_callback_query(max_message.id)
@@ -177,7 +208,7 @@ def process_command_message(m, bot_instance):
         return
 
     messenger = m.messenger
-    user = user_verif(m, session)
+    user = user_verif(m, session, bot_instance)
 
     command = None
     if hasattr(m, 'entities') and m.entities:
@@ -197,8 +228,11 @@ def process_command_message(m, bot_instance):
     if command in admin_commands and not user['admin']:
         bot_instance.send_message(m.chat.id, 'К сожалению, эта команда только для администраторов...')
         log_info['result'] = 'only_for_admins'
+    elif command in telegram_only_commands and messenger is not Messenger.TELEGRAM:
+        bot_instance.send_message(m.chat.id, Phrase.COMMAND_ONLY_TELEGRAM)
+        log_info['result'] = 'only_telegram_command'
     elif command in commands:
-        logger.debug('Запуск функции по команде', extra={'command': command, 'messenger': messenger.value})
+        logger.debug('Запуск функции по команде', extra={'command': command})
         list_func[commands[command]](m, user, bot_instance, session, logger=logger, context=m.context,
                                      messenger=messenger)
         log_info['result'] = 'command'
@@ -206,8 +240,7 @@ def process_command_message(m, bot_instance):
         log_info['result'] = 'unknown_command'
 
     session.closing()
-    logger.info('Ответ пользователю отправлен',
-                extra={'type_event': 'command', 'info': log_info, 'messenger': messenger.value})
+    logger.info('Ответ пользователю отправлен', extra={'type_event': 'command', 'info': log_info})
 
 
 def process_text_message(m, bot_instance):
@@ -227,7 +260,7 @@ def process_text_message(m, bot_instance):
         return
 
     messenger = m.messenger
-    user = user_verif(m, session)
+    user = user_verif(m, session, bot_instance)
 
     text_handling(m, user, bot_instance, session, logger=logger, context=m.context, messenger=messenger)
     session.closing()
@@ -236,11 +269,13 @@ def process_text_message(m, bot_instance):
 def event_decorator(func):
     def event(m):
         t1 = time()
+        set_log_messenger(getattr(m, 'messenger', Messenger.TELEGRAM))
         logger.debug(f'Запущена функция {func.__name__}', extra={'time_since_launch': t1 - t0})
         try:
-            if hasattr(m, 'chat') and m.chat.type != 'private' and m.chat.id != int(os.getenv('TECHNO_INFO')) or \
-                    hasattr(m, 'message') and m.message.chat.type != 'private' and m.message.chat.id != int(
-                os.getenv('TECHNO_INFO')):
+            techno_chat_id = Messenger.TELEGRAM.techno_chat_id
+            if hasattr(m, 'chat') and m.chat.type != 'private' and m.chat.id != techno_chat_id or \
+                    hasattr(m, 'message') and m.message.chat.type != 'private' and \
+                    m.message.chat.id != techno_chat_id:
                 logger.debug('Событие не обрабатывается')
                 logger.debug(
                     f'Завершена функция {func.__name__}',
@@ -249,8 +284,7 @@ def event_decorator(func):
             else:
                 func(m)
         except:
-            import traceback
-            logger.error(traceback.format_exc().replace('\n', '\r'))
+            log_traceback(f'Ошибка в функции {func.__name__}')
 
         logger.debug(
             f'Завершена функция {func.__name__}',
@@ -288,7 +322,7 @@ def callback_inline_btn(callback_query):
         return
 
     bot.answer_callback_query(callback_query.id)
-    user = user_verif(callback_query, session)
+    user = user_verif(callback_query, session, bot)
 
     callback_handling(callback_query, user, bot, session, logger=logger, context=callback_query.context,
                       messenger=callback_query.messenger)
