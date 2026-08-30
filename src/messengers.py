@@ -91,6 +91,14 @@ class Messenger(Enum):
         return f'users_{self.value}'
 
     @property
+    def donations_table(self) -> str:
+        return f'donations_{self.value}'
+
+    @property
+    def bot_url_domain(self) -> str:
+        return {'telegram': 'https://t.me', 'max': 'https://max.ru'}[self.value]
+
+    @property
     def superadmin_id(self) -> Optional[int]:
         value = os.getenv(f'{self.value.upper()}_SUPERADMIN')
         return int(value) if value else None
@@ -118,6 +126,10 @@ class BaseMessengerClient(ABC):
 
     @abstractmethod
     def get_me_id(self) -> int:
+        pass
+
+    @abstractmethod
+    def get_bot_url(self) -> str:
         pass
 
     @abstractmethod
@@ -159,6 +171,15 @@ class TelegramMessengerClient(BaseMessengerClient):
 
     def get_me_id(self) -> int:
         return self._bot.get_me().id
+
+    def get_bot_url(self) -> str:
+        global _telegram_bot_username
+        if _telegram_bot_username is None:
+            _telegram_bot_username = self._bot.get_me().username
+        return f'{Messenger.TELEGRAM.bot_url_domain}/{_telegram_bot_username}'
+
+    def edit_message_text(self, text, chat_id, message_id, **kwargs):
+        return self._bot.edit_message_text(text, chat_id, message_id, **kwargs)
 
     def get_chat(self, chat_id: int):
         return self._bot.get_chat(chat_id)
@@ -221,7 +242,8 @@ class TelegramMessengerClient(BaseMessengerClient):
         return self.send_photos(state.chat_id, media, text, reply_markup=reply_markup)
 
 
-_max_me_id = None
+_max_me = None
+_telegram_bot_username = None
 
 
 class MaxMessengerClient(BaseMessengerClient):
@@ -294,6 +316,9 @@ class MaxMessengerClient(BaseMessengerClient):
                 body['format'] = 'markdown'
             elif parse_mode == 'html':
                 body['format'] = 'html'
+
+        if kwargs.get('disable_notification'):
+            body['notify'] = False
 
         reply_to_message_id = kwargs.get('reply_to_message_id')
         if reply_to_message_id:
@@ -496,18 +521,22 @@ class MaxMessengerClient(BaseMessengerClient):
         self._pending_callback_notification = None
         return result
 
-    def get_me_id(self) -> int:
-        global _max_me_id
-        if _max_me_id is not None:
-            return _max_me_id
+    def _me(self):
+        global _max_me
+        if _max_me is None:
+            response = self._request('GET', '/me')
+            response.raise_for_status()
+            _max_me = response.json()
+        return _max_me
 
-        response = self._request('GET', '/me')
-        response.raise_for_status()
-        _max_me_id = int(response.json()['user_id'])
-        return _max_me_id
+    def get_me_id(self) -> int:
+        return int(self._me()['user_id'])
+
+    def get_bot_url(self) -> str:
+        return f"{Messenger.MAX.bot_url_domain}/{self._me()['username']}"
 
     def get_me(self):
-        return AttrDict(id=self.get_me_id())
+        return AttrDict(id=self.get_me_id(), username=self._me().get('username'))
 
     def get_chat(self, chat_id: int):
         raise NotImplementedError('В MAX нет получения пользователя по id')

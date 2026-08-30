@@ -162,7 +162,7 @@ def _parse_max_update(payload, context):
 
 def handler(event, context):
     if 'httpMethod' in event:
-        if event['path'] in ('/telegram', '/yookassa'):
+        if event['path'] == '/telegram':
             set_log_messenger(Messenger.TELEGRAM)
         elif event['path'] == '/max':
             set_log_messenger(Messenger.MAX)
@@ -202,11 +202,18 @@ def handler(event, context):
                     log_traceback('Ошибка при обработке события MAX')
 
         elif event['path'] == '/yookassa':
+            payment = loads(event['body'])['object']
+            messenger = Messenger((payment.get('metadata') or {}).get('messenger', Messenger.TELEGRAM.value))
+            set_log_messenger(messenger)
+
             session, _ = set_connect(50)
             if not session is None:
                 from pay import successful_payment
-                payment = loads(event['body'])['object']
-                successful_payment(bot, payment, session, logger)
+                clients = {
+                    Messenger.TELEGRAM: telegram_client,
+                    Messenger.MAX: MaxMessengerClient(),
+                }
+                successful_payment(clients, payment, session, logger)
                 session.closing()
 
     elif 'details' in event and 'payload' in event['details']:
