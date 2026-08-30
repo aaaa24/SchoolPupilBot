@@ -22,8 +22,6 @@ def info(m, user, bot, session, *args, **kwargs):
 
     inline_kb = types.InlineKeyboardMarkup()
     inline_kb.row(types.InlineKeyboardButton('💬 Обратная связь', callback_data='fback'))
-    inline_kb.row(
-        types.InlineKeyboardButton('🎓 Бот «Школьный тренер»', url='https://t.me/SchoolCoachBot?start=fromSchoolPupil'))
     inline_kb.row(types.InlineKeyboardButton('🏠 В меню', callback_data='menu'))
 
     send_text(bot, m, text, inline_kb)
