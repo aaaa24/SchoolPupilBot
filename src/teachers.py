@@ -3,9 +3,11 @@ import re
 import ydb
 from telebot import types
 
+import album_ui
 import constants
 from constants import Phrase
-from utils import send_text, edit_level
+from messenger_context import get_messenger_from_kwargs
+from utils import create_inline_kb, send_text, edit_level
 
 clear_symbols = lambda s: re.sub(r'[\.\-" 0-9\(\)\\/\:]+', '', s.lower())
 limit_teachers = 15
@@ -593,28 +595,24 @@ def invitation_to_add_subjects_and_classes(m, user, bot, session, *args, **kwarg
 
 
 def foto_timetable(m, user, bot, session, *args, **kwargs):
-    request = session.transaction().execute(
-        'SELECT file_id, seq_number FROM foto_timetable WHERE is_active = true ORDER BY seq_number',
-        commit_tx=True,
-        settings=ydb.BaseRequestSettings().with_timeout(3).with_operation_timeout(2)
-    )
-    file_ids = [t['file_id'] for t in request[0].rows]
-
-    text = 'Расписание учителей'
-
-    media = [types.InputMediaPhoto(ph) for ph in file_ids]
+    section = album_ui.sections['fttea']
+    album = section.album(session, album_ui.NO_SCOPE)
+    messenger = get_messenger_from_kwargs(kwargs)
 
     back = get_back_button(m.message.reply_markup.keyboard, 'listtttea')
-    back += '$new'
 
-    list_inline_btn = [('← Назад', back), ('🏠 В меню', 'menu$new')]
-    inline_buttons = [types.InlineKeyboardButton(t[0], callback_data=t[1]) for t in list_inline_btn]
-    inline_kb = types.InlineKeyboardMarkup(row_width=2).add(*inline_buttons)
+    if album.is_empty():
+        text = Phrase.NOT_TIMETABLE_PHOTO
+    else:
+        text = Phrase.TIMETABLE_PHOTO
 
-    if hasattr(m, 'message'):
-        m = m.message
-    bot.send_media_group(m.chat.id, media)
-    bot.send_message(m.chat.id, text, reply_markup=inline_kb)
+    list_inline_btn = []
+    if user['admin']:
+        list_inline_btn.append(('✏️ Редактировать', album_ui.callback_data(section, album_ui.NO_SCOPE, 'ed', 1)))
+    list_inline_btn.append([('← Назад', back + '$new'), ('🏠 В меню', 'menu$new')])
+    inline_kb = create_inline_kb(list_inline_btn, row_width=2)
+
+    album_ui.send_album(bot, m, None, album, text, inline_kb, messenger, kwargs['logger'])
 
 
 def add_class_teacher(m, user, bot, session, *args, **kwargs):
