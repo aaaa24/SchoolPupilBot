@@ -5,6 +5,10 @@ def get_users_table(messenger) -> str:
     return Messenger(messenger).table_name
 
 
+def get_donations_table(messenger) -> str:
+    return Messenger(messenger).donations_table
+
+
 def get_messenger_from_m(m) -> Messenger:
     return m.messenger
 

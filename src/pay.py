@@ -3,14 +3,52 @@ import time
 import uuid
 
 import ydb
+from telebot.apihelper import ApiTelegramException
 from yookassa import Configuration, Payment
 
 from constants import Phrase
-from messengers import Messenger
+from messenger_context import get_donations_table, get_messenger_from_kwargs
+from messengers import Messenger, get_client
 from utils import send_text, create_inline_kb
 
 
-def successful_payment(bot, payment, session, logger):
+def _payment_metadata(m, user, messenger):
+    metadata = {'user_id': user['id'], 'messenger': messenger.value}
+    for key in ('first_name', 'last_name', 'username'):
+        value = getattr(m.from_user, key, None)
+        if value:
+            metadata[key] = value
+    return metadata
+
+
+def _screen_message_id(m, message):
+    message_id = getattr(message, 'id', None)
+    if message_id is None and hasattr(m, 'message'):
+        message_id = m.message.id
+    return message_id
+
+
+def _user_info_for_admin(bot, messenger, user_id, metadata):
+    if messenger is Messenger.TELEGRAM:
+        user_info = bot.get_chat(user_id)
+        id_text = f'<code>{user_id}</code>' if user_info.has_private_forwards \
+            else f'<a href="tg://user?id={user_id}">{user_id}</a>'
+        return id_text, user_info.first_name, user_info.last_name, user_info.username
+
+    return f'<code>{user_id}</code>', metadata.get('first_name'), metadata.get('last_name'), metadata.get('username')
+
+
+def _edit_screen(bot, text, user_id, message_id, reply_markup, logger):
+    # При ошибке обработки YooKassa повторяет уведомление, поэтому экран уже может быть отрисован
+    try:
+        bot.edit_message_text(text, user_id, message_id, reply_markup=reply_markup)
+    except ApiTelegramException as error:
+        if 'message is not modified' not in str(error):
+            raise
+        logger.debug('Экран об успешной оплате уже отрисован')
+
+
+def successful_payment(clients, payment, session, logger):
     start_time = time.time()
     logger.debug('Запущена функция successful_payment')
     log_info = {
@@ -19,8 +57,13 @@ def successful_payment(bot, payment, session, logger):
         'message_id': None
     }
 
-    text_request = f'UPSERT INTO donations (id, is_successful) VALUES ("{payment["id"]}", True); ' \
-                   f'SELECT user_id, message_id, amount FROM donations WHERE id = "{payment["id"]}"'
+    metadata = payment.get('metadata') or {}
+    messenger = Messenger(metadata.get('messenger', Messenger.TELEGRAM.value))
+    bot = clients[messenger]
+    donations_table = get_donations_table(messenger)
+
+    text_request = f'UPSERT INTO {donations_table} (id, is_successful) VALUES ("{payment["id"]}", True); ' \
+                   f'SELECT user_id, message_id, amount FROM {donations_table} WHERE id = "{payment["id"]}"'
     request = session.transaction().execute(
         text_request,
         commit_tx=True,
@@ -34,20 +77,19 @@ def successful_payment(bot, payment, session, logger):
     inline_kb_user = create_inline_kb(
         [('💳 Детали платежа', url, 'url'), ('🏠 В меню', 'menu$new')]
     )
-    bot.edit_message_text(text_user, user_id, message_id, reply_markup=inline_kb_user)
+    _edit_screen(bot, text_user, user_id, message_id, inline_kb_user, logger)
 
-    user_info = bot.get_chat(user_id)
+    id_text, first_name, last_name, username = _user_info_for_admin(bot, messenger, user_id, metadata)
     text_admin = Phrase.SUCCESSFUL_PAYMENT_ADMIN.format(
-        text=f'Сумма: {amount} ₽' + \
-             f'\nСумма с учётом комиссии: {payment["income_amount"]["value"].replace(".", ",")} ₽' + \
-             '\nID: ' + (
-                 f'<code>{user_id}</code>' if user_info.has_private_forwards else f'<a href="tg://user?id={user_id}">{user_id}</a>') + \
-             f'\nИмя: {user_info.first_name}' + \
-             (f'\nФамилия: {user_info.last_name}' if user_info.last_name else '') + \
-             (f'\nНик: @{user_info.username}' if user_info.username else '')
+        text=f'Сумма: {amount} ₽' + \
+             f'\nСумма с учётом комиссии: {payment["income_amount"]["value"].replace(".", ",")} ₽' + \
+             f'\nID: {id_text}' + \
+             (f'\nИмя: {first_name}' if first_name else '') + \
+             (f'\nФамилия: {last_name}' if last_name else '') + \
+             (f'\nНик: @{username}' if username else '')
     )
 
-    bot.send_message(Messenger.TELEGRAM.techno_chat_id, text_admin, parse_mode='HTML', disable_notification=True)
+    bot.send_message(messenger.techno_chat_id, text_admin, parse_mode='HTML', disable_notification=True)
 
     log_info['user_id'] = user_id
     log_info['message_id'] = message_id
@@ -58,6 +100,7 @@ def create_order(m, user, bot, session, *args, **kwargs):
     Configuration.account_id = int(os.getenv('YOOKASSA_ACCOUNT_ID'))
     Configuration.secret_key = os.getenv('YOOKASSA_SECRET_KEY')
 
+    messenger = get_messenger_from_kwargs(kwargs)
     amount = m.data.split('$')[0].split('_')[1]
 
     payment = Payment.create({
@@ -67,12 +110,12 @@ def create_order(m, user, bot, session, *args, **kwargs):
         },
         'confirmation': {
             'type': 'redirect',
-            'return_url': 'https://t.me/SchoolPupilBot'
+            'return_url': get_client(bot).get_bot_url()
         },
         'capture': True,
         'save_payment_method': False,
         'description': 'Пожертвование для бота «Школьный помощник»',
-        'metadata': {'user_id': user['id']}
+        'metadata': _payment_metadata(m, user, messenger)
     }, uuid.uuid4())
 
     text = Phrase.PAYMENT.format(amount=amount)
@@ -84,8 +127,9 @@ def create_order(m, user, bot, session, *args, **kwargs):
     inline_kb = create_inline_kb(list_inline_btn)
     message = send_text(bot, m, text, inline_kb)
 
-    text_request = 'UPSERT INTO donations (id, user_id, message_id, amount, is_successful) ' \
-                   f'VALUES ("{payment.id}", {user["id"]}, {message.id}, {amount}, False);'
+    message_id = _screen_message_id(m, message)
+    text_request = f'UPSERT INTO {get_donations_table(messenger)} (id, user_id, message_id, amount, is_successful) ' \
+                   f'VALUES ("{payment.id}", {user["id"]}, "{message_id}", {amount}, False);'
     request = session.transaction().execute(
         text_request,
         commit_tx=True,
