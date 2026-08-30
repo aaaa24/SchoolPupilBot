@@ -2,16 +2,16 @@ from telebot import types
 
 from constants import Phrase
 from messenger_context import get_messenger_from_kwargs, get_nice_name_of_messenger_from_kwargs, get_users_table
-from utils import create_inline_kb, send_text, edit_level
+from utils import create_inline_kb, send_text, edit_level, try_delete_message
 
 
 def cancel(m, user, bot, session, *args, **kwargs):
-    bot.delete_message(m.message.chat.id, m.message.message_id)
+    try_delete_message(bot, m.message.chat.id, m.message.message_id)
 
     if '$del' in m.data:
         message_ids = m.data[m.data.index('$del') + 4:].split('$')[0].split(',')
         for message_id in message_ids:
-            bot.delete_message(m.message.chat.id, message_id)
+            try_delete_message(bot, m.message.chat.id, message_id)
 
     if user['level'] != 'menu':
         edit_level(m, 'menu', session)

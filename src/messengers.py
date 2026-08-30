@@ -41,6 +41,14 @@ class MediaItem:
     content_type: Optional[str] = None
 
 
+class SentMessage:
+    def __init__(self, chat_id, message_id, content_type='text'):
+        self.chat = AttrDict(id=chat_id)
+        self.message_id = message_id
+        self.id = message_id
+        self.content_type = content_type
+
+
 # Суффикс отмечает кнопки экрана, у которого фотографии отправлены отдельно от подписи с клавиатурой
 # (медиагруппа в Telegram). Такой экран нельзя изменить, не оторвав фотографии от подписи,
 # поэтому по нажатию его кнопок всегда отправляется новый экран
@@ -87,6 +95,15 @@ class Messenger(Enum):
         value = os.getenv(f'{self.value.upper()}_SUPERADMIN')
         return int(value) if value else None
 
+    @property
+    def techno_chat_id(self) -> Optional[int]:
+        value = os.getenv(f'{self.value.upper()}_TECHNO_INFO')
+        return int(value) if value else None
+
+    @property
+    def text_limit(self) -> int:
+        return {'telegram': 4096, 'max': 4000}[self.value]
+
 
 class BaseMessengerClient(ABC):
     platform: Messenger
@@ -113,6 +130,14 @@ class BaseMessengerClient(ABC):
 
     @abstractmethod
     def send_photos(self, chat_id: int, media: list[MediaItem], caption: str, reply_markup=None, **kwargs):
+        pass
+
+    @abstractmethod
+    def send_message_to_user(self, user_id, text, media=None, reply_markup=None, **kwargs):
+        pass
+
+    @abstractmethod
+    def forward_message(self, chat_id, from_chat_id, message_id):
         pass
 
     @abstractmethod
@@ -167,6 +192,14 @@ class TelegramMessengerClient(BaseMessengerClient):
                 item.id = message.photo[-1].file_id
         return self._bot.send_message(chat_id, caption, reply_markup=mark_detached(reply_markup), **kwargs)
 
+    def send_message_to_user(self, user_id, text, media=None, reply_markup=None, **kwargs):
+        if media:
+            return self.send_photos(user_id, media, text, reply_markup=reply_markup, **kwargs)
+        return self._bot.send_message(user_id, text, reply_markup=reply_markup, **kwargs)
+
+    def forward_message(self, chat_id, from_chat_id, message_id):
+        return self._bot.forward_message(chat_id, from_chat_id, message_id)
+
     def render_screen(self, state, text, media, reply_markup=None, force_new=False):
         media = media or []
 
@@ -188,14 +221,17 @@ class TelegramMessengerClient(BaseMessengerClient):
         return self.send_photos(state.chat_id, media, text, reply_markup=reply_markup)
 
 
+_max_me_id = None
+
+
 class MaxMessengerClient(BaseMessengerClient):
     platform = Messenger.MAX
 
     def __init__(self):
         self.base_url = os.getenv('MAX_API_BASE_URL', 'https://platform-api2.max.ru')
         self.token = os.getenv('MAX_BOT_TOKEN')
-        self._me_id = None
         self._active_callback_id = None
+        self._active_callback_mid = None
         self._callback_answered = False
         self._pending_callback_message = None
         self._pending_callback_notification = None
@@ -259,10 +295,15 @@ class MaxMessengerClient(BaseMessengerClient):
             elif parse_mode == 'html':
                 body['format'] = 'html'
 
+        reply_to_message_id = kwargs.get('reply_to_message_id')
+        if reply_to_message_id:
+            body['link'] = {'type': 'reply', 'mid': str(reply_to_message_id)}
+
         return body
 
-    def begin_callback(self, callback_id: str, text=None, photos=None, reply_markup=None):
+    def begin_callback(self, callback_id: str, text=None, photos=None, reply_markup=None, message_id=None):
         self._active_callback_id = callback_id
+        self._active_callback_mid = message_id
         self._callback_answered = False
         self._pending_callback_notification = None
 
@@ -273,8 +314,14 @@ class MaxMessengerClient(BaseMessengerClient):
         if text is not None:
             self._pending_callback_message['text'] = text
 
-    def _enqueue_callback_message(self, message_body):
+    def _is_callback_message(self, message_id):
         if not self._active_callback_id or self._callback_answered:
+            return False
+        return message_id is None or self._active_callback_mid is None or \
+            str(message_id) == str(self._active_callback_mid)
+
+    def _enqueue_callback_message(self, message_body, message_id=None):
+        if not self._is_callback_message(message_id):
             return False
 
         if self._pending_callback_message is None:
@@ -293,33 +340,63 @@ class MaxMessengerClient(BaseMessengerClient):
         self._pending_callback_notification = notification
         return True
 
+    def _sent_message(self, result, chat_id=None, content_type='text'):
+        message = (result or {}).get('message') or {}
+        body = message.get('body') or {}
+        recipient = message.get('recipient') or {}
+        if chat_id is None:
+            chat_id = recipient.get('chat_id') or recipient.get('user_id')
+        return SentMessage(chat_id, body.get('mid'), content_type)
+
     def send_message(self, chat_id: int, text: str, **kwargs):
-        return self._send_body('POST', '/messages', {'chat_id': chat_id}, self._build_message_body(text=text, **kwargs))
+        result = self._send_body('POST', '/messages', {'chat_id': chat_id},
+                                 self._build_message_body(text=text, **kwargs))
+        return self._sent_message(result, chat_id)
+
+    def send_message_to_user(self, user_id, text, media=None, reply_markup=None, **kwargs):
+        if media:
+            return self.send_photos(user_id, media, text, reply_markup=reply_markup, target='user_id', **kwargs)
+
+        result = self._send_body('POST', '/messages', {'user_id': user_id},
+                                 self._build_message_body(text=text, reply_markup=reply_markup, **kwargs))
+        return self._sent_message(result)
+
+    def forward_message(self, chat_id, from_chat_id, message_id):
+        result = self._send_body('POST', '/messages', {'chat_id': chat_id},
+                                 {'link': {'type': 'forward', 'mid': str(message_id)}})
+        return self._sent_message(result, chat_id)
 
     def edit_message_text(self, text, chat_id, message_id, **kwargs):
         payload = self._build_message_body(text=text, **kwargs)
-        if self._enqueue_callback_message(payload):
+        if self._enqueue_callback_message(payload, message_id):
             return {'success': True}
 
-        return {
-            'success': False,
-            'message': 'Редактирование сообщений MAX возможно только через /answers в контексте callback',
-        }
+        return self._send_body('PUT', '/messages', {'message_id': message_id}, payload)
 
     def edit_message_reply_markup(self, chat_id, message_id, reply_markup=None, **kwargs):
         payload = {'attachments': self._build_attachments(reply_markup) or []}
-        if self._enqueue_callback_message(payload):
+        if self._enqueue_callback_message(payload, message_id):
             return {'success': True}
 
-        return {
-            'success': False,
-            'message': 'Редактирование клавиатуры MAX доступно только в контексте callback через /answers',
-        }
+        return self._send_body('PUT', '/messages', {'message_id': message_id}, payload)
 
     def delete_message(self, chat_id, message_id):
         response = self._request('DELETE', '/messages', params={'message_id': message_id})
         response.raise_for_status()
+
+        if self._is_callback_message(message_id) and self._active_callback_mid is not None:
+            self._callback_answered = True
+            self._active_callback_id = None
+            self._active_callback_mid = None
+            self._pending_callback_message = None
+            self._pending_callback_notification = None
         return response.json()
+
+    def get_message(self, message_id):
+        response = self._request('GET', f'/messages/{message_id}')
+        response.raise_for_status()
+        result = response.json()
+        return result.get('message', result)
 
     def send_photo(self, chat_id, photo, caption=None, **kwargs):
         return self.send_photos(chat_id, [MediaItem(id=photo)], caption or '', **kwargs)
@@ -356,7 +433,10 @@ class MaxMessengerClient(BaseMessengerClient):
         return attachments
 
     def send_photos(self, chat_id: int, media: list[MediaItem], caption: str, reply_markup=None, **kwargs):
+        target = kwargs.pop('target', 'chat_id')
         if not media:
+            if target == 'user_id':
+                return self.send_message_to_user(chat_id, caption, reply_markup=reply_markup, **kwargs)
             return self.send_message(chat_id, caption, reply_markup=reply_markup, **kwargs)
 
         chunk_size = 11 if reply_markup else 12
@@ -369,8 +449,8 @@ class MaxMessengerClient(BaseMessengerClient):
                 reply_markup=reply_markup if is_last_chunk else None,
                 **kwargs,
             )
-            result = self._send_body('POST', '/messages', {'chat_id': chat_id}, payload)
-        return result
+            result = self._send_body('POST', '/messages', {target: chat_id}, payload)
+        return self._sent_message(result, chat_id if target == 'chat_id' else None, 'photo')
 
     def render_screen(self, state, text, media, reply_markup=None, force_new=False):
         media = media or []
@@ -379,7 +459,7 @@ class MaxMessengerClient(BaseMessengerClient):
         if state.message_id is not None and not force_new and len(media) <= limit:
             payload = self._build_message_body(text, attachments=self._image_attachments(media),
                                                reply_markup=reply_markup)
-            if self._enqueue_callback_message(payload):
+            if self._enqueue_callback_message(payload, state.message_id):
                 return {'success': True}
 
             return self._send_body('PUT', '/messages', {'message_id': state.message_id}, payload)
@@ -387,6 +467,9 @@ class MaxMessengerClient(BaseMessengerClient):
         return self.send_photos(state.chat_id, media, text, reply_markup=reply_markup)
 
     def answer_callback_query(self, callback_query_id: str, **kwargs):
+        if self._callback_answered:
+            return None
+
         callback_id = callback_query_id or self._active_callback_id
         if not callback_id:
             return None
@@ -401,36 +484,39 @@ class MaxMessengerClient(BaseMessengerClient):
         if self._pending_callback_notification is not None:
             body['notification'] = self._pending_callback_notification
 
-        if body:
-            result = self._send_body('POST', '/answers', {'callback_id': callback_id}, body)
-        else:
-            response = self._request('POST', '/answers', params={'callback_id': callback_id})
-            response.raise_for_status()
-            result = response.json()
+        result = self._send_body('POST', '/answers', {'callback_id': callback_id}, body)
 
         if not result.get('success', False):
             raise RuntimeError(f"Ошибка ответа на callback MAX: {result.get('message', 'неизвестная ошибка')}")
 
         self._callback_answered = True
         self._active_callback_id = None
+        self._active_callback_mid = None
         self._pending_callback_message = None
         self._pending_callback_notification = None
         return result
 
     def get_me_id(self) -> int:
-        if self._me_id is not None:
-            return self._me_id
+        global _max_me_id
+        if _max_me_id is not None:
+            return _max_me_id
 
         response = self._request('GET', '/me')
         response.raise_for_status()
-        self._me_id = int(response.json()['user_id'])
-        return self._me_id
+        _max_me_id = int(response.json()['user_id'])
+        return _max_me_id
 
     def get_me(self):
         return AttrDict(id=self.get_me_id())
 
     def get_chat(self, chat_id: int):
-        return type('Chat', (), {'id': chat_id, 'has_private_forwards': True})
+        raise NotImplementedError('В MAX нет получения пользователя по id')
+
+
+def get_client(bot):
+    if isinstance(bot, BaseMessengerClient):
+        return bot
+    return TelegramMessengerClient(bot)
 
 
 class AttrDict:
@@ -447,7 +533,7 @@ class UnifiedPhoto:
 
 class UnifiedMessage:
     def __init__(self, *, messenger: Messenger, user: MessengerUser, chat: MessengerChat, text: Optional[str], context: Any = None,
-                 photos=None, caption: Optional[str] = None):
+                 photos=None, caption: Optional[str] = None, message_id=None, reply_to_message=None):
         self.messenger = messenger
         self.from_user = AttrDict(
             id=user.id,
@@ -461,7 +547,9 @@ class UnifiedMessage:
         self.content_type = 'photo' if photos else 'text'
         self.photo = photos
         self.entities = []
-        self.reply_to_message = None
+        self.message_id = message_id
+        self.id = message_id
+        self.reply_to_message = reply_to_message
         self.is_edit_text = False
         self.context = context
         self.json = {
@@ -489,7 +577,7 @@ class UnifiedInlineKeyboardMarkup:
 
 class UnifiedCallbackMessage:
     def __init__(self, *, messenger: Messenger, user: MessengerUser, chat: MessengerChat, text: str, message_id: Optional[str],
-                 reply_markup=None, photos=None):
+                 reply_markup=None, photos=None, reply_to_message=None, caption=None):
         self.messenger = messenger
         self.from_user = AttrDict(
             id=user.id,
@@ -499,12 +587,13 @@ class UnifiedCallbackMessage:
         )
         self.chat = AttrDict(id=chat.id, type=chat.type)
         self.text = text
-        self.caption = None
+        self.caption = caption
         self.content_type = 'photo' if photos else 'text'
         self.photo = photos
         self.message_id = message_id
         self.id = message_id
         self.reply_markup = reply_markup
+        self.reply_to_message = reply_to_message
 
 
 class UnifiedCallbackQuery:

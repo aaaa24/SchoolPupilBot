@@ -67,6 +67,7 @@ class Phrase:
     CHAT_NOT_FOUND_CMD = 'Чат с ID {u_id} не найден'
     NOT_ID_CHAT_CMD = 'Не удалось распознать ID чата'
     ID_SHOULD_BE_WRITTEN = 'После команды необходимо писать ID чата, информацию о котором хотите узнать'
+    COMMAND_ONLY_TELEGRAM = 'Эта команда доступна только в Telegram'
     CREATING_STAT = 'Начато формирование статистики'
     INVITATION_TO_ADD_SUBJECTS_AND_CLASSES = 'Отправьте предметы и классы, в которых {text} ведёт уроки'
     NOT_FOUND_SUBJECT = 'Не удалось распознать название ни одного из предметов. Введите информацию ещё раз'
@@ -206,7 +207,7 @@ dict_re = {
     'count_p': r'(\d{2})',
     'cl_teach': r'([А-Яа-я\-]+ [А-Яа-я\-]+ [А-Яа-я\-]+)',
     'u_id': r'(-?\d+)',
-    'm_id': r'(\d+)',
+    'm_id': r'([A-Za-z0-9.~-]+)',
     'text': r'((?:.|\n)*)',
     'maxtext': r'((?:.|\n)+)',
     'c_usrs': r'(\d+)',

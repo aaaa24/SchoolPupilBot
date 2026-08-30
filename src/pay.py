@@ -6,6 +6,7 @@ import ydb
 from yookassa import Configuration, Payment
 
 from constants import Phrase
+from messengers import Messenger
 from utils import send_text, create_inline_kb
 
 
@@ -46,7 +47,7 @@ def successful_payment(bot, payment, session, logger):
              (f'\nНик: @{user_info.username}' if user_info.username else '')
     )
 
-    bot.send_message(int(os.getenv('TECHNO_INFO')), text_admin, parse_mode='HTML', disable_notification=True)
+    bot.send_message(Messenger.TELEGRAM.techno_chat_id, text_admin, parse_mode='HTML', disable_notification=True)
 
     log_info['user_id'] = user_id
     log_info['message_id'] = message_id
