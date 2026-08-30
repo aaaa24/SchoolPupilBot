@@ -61,6 +61,12 @@ def webhook():
     return jsonify(handler(event, {}))
 
 
+@app.route('/trigger/<payload>', methods=['GET', 'POST'])
+def trigger(payload):
+    # эмуляция триггеров Cloud Functions: daily_statistics, mailing_changes_tt, mailing_newsletter
+    return jsonify(handler({'details': {'payload': payload}}, {}))
+
+
 if __name__ == '__main__':
     app.run(
         host='0.0.0.0',
