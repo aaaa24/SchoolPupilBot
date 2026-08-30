@@ -1,9 +1,28 @@
+import logging
 import time
 
 from telebot import types, apihelper
 
 from messenger_context import get_messenger_from_m, get_users_table
 from messengers import ScreenState, force_new_screen
+
+
+def try_delete_message(bot, chat_id, message_id):
+    try:
+        bot.delete_message(chat_id, message_id)
+    except Exception:
+        logging.getLogger('schoolpupil').warning('Не удалось удалить сообщение',
+                                                 extra={'message_id': message_id})
+        return False
+    return True
+
+
+def pack_id(message_id):
+    return str(message_id).replace('_', '~')
+
+
+def unpack_id(value):
+    return str(value).replace('~', '_')
 
 
 def get_inline_button(button):
@@ -94,6 +113,6 @@ def suffixes(bot, m, text, inline_kb, **kwargs):
     if '$del' in m.data:
         message_ids = m.data[m.data.index('$del') + 4:].split('$')[0].split(',')
         for message_id in message_ids:
-            bot.delete_message(m.message.chat.id, message_id)
+            try_delete_message(bot, m.message.chat.id, message_id)
     if '$sdel' in m.data:
-        bot.delete_message(m.message.chat.id, m.message.message_id)
+        try_delete_message(bot, m.message.chat.id, m.message.message_id)

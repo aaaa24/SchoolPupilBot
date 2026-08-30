@@ -51,7 +51,8 @@ jobs:
             CHANNEL_PERVYE=${{ secrets.CHANNEL_PERVYE }}
             TELEGRAM_SUPERADMIN=${{ secrets.TELEGRAM_SUPERADMIN }}
             MAX_SUPERADMIN=${{ secrets.MAX_SUPERADMIN }}
-            TECHNO_INFO=${{ secrets.TECHNO_INFO }}
+            TELEGRAM_TECHNO_INFO=${{ secrets.TELEGRAM_TECHNO_INFO }}
+            MAX_TECHNO_INFO=${{ secrets.MAX_TECHNO_INFO }}
             LOG_GROUP_ID=${{ secrets.LOG_GROUP_ID }}
             VK_APP_ID=${{ secrets.VK_APP_ID }}
             YOOKASSA_ACCOUNT_ID=${{ secrets.YOOKASSA_ACCOUNT_ID }}
