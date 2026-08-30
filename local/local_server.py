@@ -5,7 +5,9 @@ from datetime import datetime
 from dotenv import load_dotenv
 from flask import Flask, request, jsonify
 
-load_dotenv(os.path.join(os.path.dirname(__file__), '.env'))
+# override, чтобы после правки .env перезапуск сервера подхватывал новые значения,
+# а не унаследованные от прошлого процесса переменные окружения
+load_dotenv(os.path.join(os.path.dirname(__file__), '.env'), override=True)
 
 from index import handler
 
@@ -14,6 +16,7 @@ app = Flask(__name__)
 
 @app.route('/telegram', methods=['POST'])
 @app.route('/max', methods=['POST'])
+@app.route('/yookassa', methods=['POST'])
 def webhook():
     body_str = request.get_data(as_text=True)
 
