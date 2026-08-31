@@ -2,8 +2,8 @@
 Description=Дневная статистика в 23:55 по Москве
 
 [Timer]
-OnCalendar=*-*-* 23:55:00
-Timezone=Europe/Moscow
+# 23:55 МСК
+OnCalendar=*-*-* 20:55:00 UTC
 Persistent=false
 Unit=schoolpupilbot-trigger@daily_statistics.service
 

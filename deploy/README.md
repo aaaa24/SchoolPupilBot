@@ -3,8 +3,8 @@
 Telegram работает на выделенном сервере, MAX остаётся в Cloud Functions.
 Кодовая база общая, разделение задаёт переменная `MESSENGERS`.
 
-Ниже `SERVER_ADDRESS` — IP-адрес сервера (или домен, если выбран запасной вариант),
-`DEPLOY_USER` — пользователь, от имени которого работает деплой (секрет `SERVER_USER`).
+Ниже `SERVER_ADDRESS` — IP-адрес сервера (или домен, если выбран запасной вариант).
+Пользователь деплоя — `deploy`, его имя уходит в секрет `SERVER_USER`.
 
 Вручную настраивается только машина: пользователи, каталоги, venv, сертификат, nginx и юниты.
 Код, зависимости и файл окружения экземпляра выкладывает CD.
@@ -34,12 +34,15 @@ Telegram работает на выделенном сервере, MAX оста
 ## 2. Пользователи и каталоги
 
 Службы работают от системного пользователя `schoolpupilbot` и только читают код,
-а пишет в каталоги пользователь деплоя.
+а пишет в каталоги отдельный пользователь `deploy`. Обычный аккаунт с полным `sudo`
+для деплоя не годится: утечка ключа из GitHub означала бы полный доступ к серверу.
 
 ```bash
 sudo useradd --system --home-dir /opt/schoolpupilbot --shell /usr/sbin/nologin schoolpupilbot
+sudo useradd --create-home --shell /bin/bash deploy
+
 sudo mkdir -p /opt/schoolpupilbot/{prod,preprod} /etc/schoolpupilbot /var/www/certbot
-sudo chown -R DEPLOY_USER:schoolpupilbot /opt/schoolpupilbot
+sudo chown -R deploy:schoolpupilbot /opt/schoolpupilbot
 sudo chmod -R g+rX /opt/schoolpupilbot
 
 sudo cp authorized_key.json /etc/schoolpupilbot/
@@ -54,7 +57,7 @@ sudo chmod 600 /etc/schoolpupilbot/authorized_key.json
 
 ## 3. Python 3.14 и venv
 
-Системный интерпретатор Debian 13 не трогаем. Всё — от имени пользователя деплоя,
+Системный интерпретатор Debian 13 не трогаем. Всё — от имени `deploy` (`sudo -u deploy -i`),
 он же ставит зависимости в CD.
 
 ```bash
@@ -68,45 +71,106 @@ done
 
 Зависимости ставятся первым же деплоем, вручную их устанавливать не нужно.
 
-## 4. Сертификат
-
-Сертификаты Let's Encrypt на IP-адрес выдаются только короткими, на шесть дней,
-поэтому нужен certbot с поддержкой профилей ACME — из репозитория Debian 13 он старый.
-
-```bash
-uv tool install certbot
-```
-
-Сначала пробный выпуск на тестовом сервере Let's Encrypt:
-
-```bash
-sudo certbot certonly --webroot -w /var/www/certbot -d SERVER_ADDRESS \
-    --preferred-profile shortlived --staging
-```
-
-Если прошло — боевой выпуск:
-
-```bash
-sudo certbot certonly --webroot -w /var/www/certbot -d SERVER_ADDRESS \
-    --preferred-profile shortlived \
-    --deploy-hook "systemctl reload nginx"
-sudo systemctl enable --now certbot.timer
-```
-
-Если выпуск на IP не получится, вариант с доменом: направить A-запись на сервер и
-выпустить обычный сертификат без `--preferred-profile`, дальше всё без изменений.
-
-## 5. nginx
+## 4. nginx
 
 ```bash
 sudo apt install nginx
-sudo sed 's/SERVER_ADDRESS/<адрес>/g' nginx.conf | sudo tee /etc/nginx/sites-available/schoolpupilbot
+```
+
+Полный конфиг не поднимется без сертификата, а сертификат не выпустить, пока никто не
+отвечает на 80-м порту. Поэтому сначала — только ACME-часть:
+
+```bash
+sudo tee /etc/nginx/sites-available/schoolpupilbot << 'EOF'
+server {
+    listen 80 default_server;
+    listen [::]:80 default_server;
+    server_name _;
+
+    location /.well-known/acme-challenge/ {
+        root /var/www/certbot;
+    }
+}
+EOF
 sudo ln -sf /etc/nginx/sites-available/schoolpupilbot /etc/nginx/sites-enabled/
 sudo rm -f /etc/nginx/sites-enabled/default
 sudo nginx -t && sudo systemctl reload nginx
 ```
 
 AmneziaVPN занимает 8443/TCP и 49435/UDP, порты 80 и 443 свободны.
+
+## 5. Сертификат
+
+Шаги этого раздела выполняются от администратора, а не от `deploy`: у того нет ни sudo, ни пароля.
+
+Сертификаты Let's Encrypt на IP-адрес выдаются только короткими, на шесть дней,
+поэтому нужен certbot не ниже 5.4 — из репозитория Debian 13 он старый.
+Ставим свежий в отдельное окружение и кладём ссылку в `/usr/local/bin`, чтобы он был
+виден `sudo` (в `secure_path` домашних каталогов нет):
+
+Системного `python3` для этого может не хватить: certbot 5.x требует Python 3.10,
+а в старых Debian это 3.9. Берём тот же 3.14, что и для бота, — uv уже стоит у `deploy`:
+
+```bash
+sudo /home/deploy/.local/bin/uv venv --python 3.14 /opt/certbot/venv
+sudo /home/deploy/.local/bin/uv pip install --python /opt/certbot/venv/bin/python certbot
+sudo ln -sf /opt/certbot/venv/bin/certbot /usr/local/bin/certbot
+certbot --version
+```
+
+Адрес передаётся флагом `--ip-address`, а не `-d`: на `-d` с IP certbot отвечает
+«will not issue certificates for a bare IP address», не дойдя до сервера. Флаг появился
+в certbot 5.3, а вместе с `--webroot` работает с 5.4.
+
+Сначала пробный выпуск на тестовом сервере Let's Encrypt:
+
+```bash
+sudo certbot certonly --staging \
+    --preferred-profile shortlived \
+    --webroot --webroot-path /var/www/certbot \
+    --ip-address SERVER_ADDRESS
+```
+
+Если прошло — боевой выпуск:
+
+```bash
+sudo certbot certonly \
+    --preferred-profile shortlived \
+    --webroot --webroot-path /var/www/certbot \
+    --ip-address SERVER_ADDRESS \
+    --deploy-hook "systemctl reload nginx"
+```
+
+Профиль `shortlived` для сертификатов на IP обязателен, другого срока Let's Encrypt
+для них не выдаёт. Плагины `nginx` и `apache` с IP пока не работают — только
+`webroot`, `standalone` и `manual`.
+
+Пакетного `certbot.timer` здесь нет — certbot поставлен не из apt, поэтому продление
+включается своим таймером на шаге 7. Параметры выпуска certbot запоминает
+в `/etc/letsencrypt/renewal/`, так что `certbot renew` повторяет их сам.
+
+Если выпуск на IP не получится, вариант с доменом: направить A-запись на сервер и
+выпустить обычный сертификат без `--preferred-profile`, дальше всё без изменений.
+
+Теперь можно подключить полный конфиг — это файл `deploy/nginx.conf` из репозитория.
+После первого деплоя он лежит на сервере в `/opt/schoolpupilbot/prod/deploy/nginx.conf`,
+а до него копируется с рабочей машины:
+
+```bash
+scp deploy/nginx.conf admin@SERVER_ADDRESS:~
+```
+
+Дальше на сервере (`http2 on;` требует nginx 1.25.1, на более старом заменить
+на `listen 443 ssl http2;` и убрать строку `http2 on;`):
+
+```bash
+nginx -v
+sudo sed 's/SERVER_ADDRESS/<адрес>/g' ~/nginx.conf \
+    | sudo tee /etc/nginx/sites-available/schoolpupilbot > /dev/null
+sudo nginx -t && sudo systemctl reload nginx
+```
+
+Проксировать пока некуда, службы поднимутся на шаге 7 — до этого на `/health` будет 502.
 
 ## 6. Деплой из GitHub
 
@@ -120,11 +184,25 @@ AmneziaVPN занимает 8443/TCP и 49435/UDP, порты 80 и 443 своб
 (см. шаг «Выгрузить файл окружения» в `.github/workflows/cd.yml`). Изменил секрет —
 перезапустил workflow, файл на сервере перезапишется.
 
-Пользователю деплоя разрешить только перезапуск служб:
+Ключ для доступа по SSH (без пароля, приватная часть уходит в `SERVER_SSH_KEY`):
 
+```bash
+ssh-keygen -t ed25519 -f ~/.ssh/schoolpupilbot_deploy -C github-actions -N ''
+sudo install -d -m 700 -o deploy -g deploy /home/deploy/.ssh
+sudo tee /home/deploy/.ssh/authorized_keys < ~/.ssh/schoolpupilbot_deploy.pub
+sudo chown deploy:deploy /home/deploy/.ssh/authorized_keys
+sudo chmod 600 /home/deploy/.ssh/authorized_keys
 ```
-DEPLOY_USER ALL=(root) NOPASSWD: /usr/bin/systemctl restart schoolpupilbot@prod, \
-    /usr/bin/systemctl restart schoolpupilbot@preprod
+
+Пользователю деплоя разрешить только перезапуск служб. Без `NOPASSWD` деплой упадёт:
+по SSH терминала нет и ввести пароль некому.
+
+```bash
+sudo tee /etc/sudoers.d/schoolpupilbot << 'EOF'
+deploy ALL=(root) NOPASSWD: /usr/bin/systemctl restart schoolpupilbot@prod, /usr/bin/systemctl restart schoolpupilbot@preprod
+EOF
+sudo chmod 440 /etc/sudoers.d/schoolpupilbot
+sudo visudo -c
 ```
 
 Первый деплой (push в `develop` или `main`) выгрузит код, поставит зависимости
@@ -134,14 +212,21 @@ DEPLOY_USER ALL=(root) NOPASSWD: /usr/bin/systemctl restart schoolpupilbot@prod,
 
 ```bash
 sudo cp schoolpupilbot@.service schoolpupilbot-trigger@.service \
-        schoolpupilbot-cert-check.service *.timer /etc/systemd/system/
+        schoolpupilbot-cert-check.service certbot-renew.service \
+        *.timer /etc/systemd/system/
 sudo systemctl daemon-reload
 sudo systemctl enable --now schoolpupilbot@prod schoolpupilbot@preprod
 sudo systemctl enable --now schoolpupilbot-trigger@mailing_newsletter.timer \
     schoolpupilbot-trigger@mailing_changes_tt.timer \
     schoolpupilbot-trigger@daily_statistics.timer \
-    schoolpupilbot-cert-check.timer
+    schoolpupilbot-cert-check.timer certbot-renew.timer
 ```
+
+`certbot-renew.timer` пробует продлить сертификат каждые шесть часов: при сроке жизни
+в шесть дней окно продления открывается примерно за двое суток до конца, и редких
+попыток не хватило бы. `schoolpupilbot-cert-check.timer` — независимая проверка,
+что продление действительно происходит: если до конца срока меньше двух дней,
+в технический чат приходит предупреждение.
 
 Таймеры обращаются к уже работающему процессу, а не поднимают новый: иначе каждый
 запуск это ещё одно обращение в Lockbox и новое подключение к базе.
@@ -169,5 +254,14 @@ curl -s https://SERVER_ADDRESS/health
 curl -s https://SERVER_ADDRESS/preprod/health
 systemctl status schoolpupilbot@prod
 journalctl -u schoolpupilbot@prod -f
-systemctl list-timers 'schoolpupilbot*'
+systemctl list-timers 'schoolpupilbot*' certbot-renew.timer
+sudo -u schoolpupilbot openssl x509 -in /etc/letsencrypt/live/SERVER_ADDRESS/cert.pem -noout -enddate
+```
+
+Последняя команда проверяет, что проверку срока сертификата видит и служба:
+`schoolpupilbot-cert-check` работает не от root, а certbot в некоторых версиях
+закрывает `/etc/letsencrypt/live` от посторонних. Если доступа нет:
+
+```bash
+sudo chmod 755 /etc/letsencrypt/live /etc/letsencrypt/archive
 ```

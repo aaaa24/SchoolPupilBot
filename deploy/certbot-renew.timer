@@ -1,0 +1,10 @@
+[Unit]
+Description=Регулярная проверка продления сертификата
+
+[Timer]
+OnCalendar=*-*-* 00/6:23:00 UTC
+RandomizedDelaySec=20m
+Persistent=true
+
+[Install]
+WantedBy=timers.target
