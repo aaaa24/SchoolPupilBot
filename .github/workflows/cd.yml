@@ -156,9 +156,15 @@ jobs:
             "set -e
              sed 's/SERVER_ADDRESS/${{ secrets.SERVER_HOST }}/g' \
                  /opt/schoolpupilbot/prod/deploy/nginx.conf > /opt/schoolpupilbot/prod/nginx.rendered
+             cp /etc/nginx/sites-available/schoolpupilbot /opt/schoolpupilbot/prod/nginx.previous
              sudo /usr/bin/install -m 644 -o root -g root \
                  /opt/schoolpupilbot/prod/nginx.rendered /etc/nginx/sites-available/schoolpupilbot
-             sudo /usr/sbin/nginx -t
+             if ! sudo /usr/sbin/nginx -t; then
+                 cp /opt/schoolpupilbot/prod/nginx.previous /opt/schoolpupilbot/prod/nginx.rendered
+                 sudo /usr/bin/install -m 644 -o root -g root \
+                     /opt/schoolpupilbot/prod/nginx.rendered /etc/nginx/sites-available/schoolpupilbot
+                 exit 1
+             fi
              sudo /usr/bin/systemctl reload nginx"
 
       - name: Проверить, что экземпляр поднялся
