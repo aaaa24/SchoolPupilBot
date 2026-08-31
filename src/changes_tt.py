@@ -9,8 +9,9 @@ import constants
 from album_ui import callback_data, send_album
 from constants import Phrase
 from messenger_context import get_messenger_from_kwargs, get_users_table
+from messengers import Messenger
 from photo_album import ChangesAlbum
-from utils import edit_level, send_text
+from utils import edit_level, msk_now, send_text
 
 SECTION = album_ui.sections['chtt']
 
@@ -27,33 +28,45 @@ def _send_changes(bot, mm, chat_id, date_format, text, inline_kb, session, logge
     return send_album(bot, mm, chat_id, _album(session, date_format), text, inline_kb, messenger, logger)
 
 
+def _mailing_flag_key(messenger):
+    return f'mailing_has_been_sent_{Messenger(messenger).value}'
+
+
+def _get_mailing_flag(messenger, session):
+    request = session.transaction().execute(
+        f'SELECT value FROM app WHERE key = "{_mailing_flag_key(messenger)}";',
+        commit_tx=True,
+        settings=ydb.BaseRequestSettings().with_timeout(3).with_operation_timeout(2)
+    )
+    return bool(request[0].rows) and request[0].rows[0]['value'] == 'true'
+
+
+def _set_mailing_flag(messenger, value, session):
+    session.transaction().execute(
+        f'UPSERT INTO app (key, value) VALUES ("{_mailing_flag_key(messenger)}", "{"true" if value else "false"}");',
+        commit_tx=True,
+        settings=ydb.BaseRequestSettings().with_timeout(3).with_operation_timeout(2)
+    )
+
+
 def mailing_changes_tt(clients, session, logger, *args, **kwargs):
     start_time = time.time()
     logger.debug('Запущена функция mailing_changes_tt')
     log_info = {
         'flag': None, 'date': None,
-        'sql_date': None, 'mailing_has_already_been_sent': None,
+        'sql_date': None, 'mailing_has_already_been_sent': {},
         'count_files': None, 'is_sent': False,
         'total_count': None, 'final_count': None
     }
 
-    request = session.transaction().execute(
-        'SELECT * FROM app WHERE key = "mailing_has_been_sent";',
-        commit_tx=True,
-        settings=ydb.BaseRequestSettings().with_timeout(3).with_operation_timeout(2)
-    )
-    mailing_has_already_been_sent = True if request[0].rows[0]['value'] == 'true' else False
-    log_info['mailing_has_already_been_sent'] = mailing_has_already_been_sent
-
     control_hour = 16
     control_min = 0
-    t = time.time() + 10800
-    struct_time = time.localtime(t)
+    struct_time = msk_now()
     if struct_time.tm_hour < control_hour or struct_time.tm_hour == control_hour and struct_time.tm_min <= control_min:
         flag = 'today'
     else:
         flag = 'tomorrow'
-        struct_time = time.localtime(t + 86400)
+        struct_time = msk_now(86400)
     date = f'{struct_time.tm_mday}.{struct_time.tm_mon}.{struct_time.tm_year}'
     sql_date = f'{struct_time.tm_year}-{struct_time.tm_mon}-{struct_time.tm_mday}'
 
@@ -63,13 +76,7 @@ def mailing_changes_tt(clients, session, logger, *args, **kwargs):
     log_info['flag'] = flag
     log_info['count_files'] = len(changes)
 
-    if flag == 'today' and mailing_has_already_been_sent:
-        session.transaction().execute(
-            'UPSERT INTO app (key, value) VALUES ("mailing_has_been_sent", "false");',
-            commit_tx=True,
-            settings=ydb.BaseRequestSettings().with_timeout(3).with_operation_timeout(2)
-        )
-    elif changes:
+    if changes:
         text = Phrase.CHANGES_TT_SOON.format(fewd='завтра' if flag == 'tomorrow' else 'сегодня',
                                              weekd=constants.weekdays[struct_time.tm_wday]['name'],
                                              day=struct_time.tm_mday,
@@ -82,38 +89,44 @@ def mailing_changes_tt(clients, session, logger, *args, **kwargs):
         inline_buttons = [types.InlineKeyboardButton(t[0], callback_data=t[1]) for t in list_inline_btn]
         inline_kb = types.InlineKeyboardMarkup(row_width=1).add(*inline_buttons)
 
-        from main import set_log_messenger
+    from main import set_log_messenger
 
-        total_count = 0
-        final_count = 0
-        for messenger, bot in clients.items():
-            set_log_messenger(messenger)
-            request = session.transaction().execute(
-                f'SELECT id FROM {get_users_table(messenger)} WHERE send_changes_tt = true;',
-                commit_tx=True,
-                settings=ydb.BaseRequestSettings().with_timeout(3).with_operation_timeout(2)
-            )
-            users = [row['id'] for row in request[0].rows]
-            total_count += len(users)
-            for user_id in users:
-                try:
-                    _send_changes(bot, None, user_id, sql_date, text, inline_kb, session, logger, messenger)
-                except Exception:
-                    logger.exception('Не удалось отправить изменения в расписании', extra={'user_id': user_id})
-                else:
-                    final_count += 1
-        set_log_messenger(None)
-        log_info['total_count'] = total_count
-        log_info['final_count'] = final_count
+    total_count = 0
+    final_count = 0
+    for messenger, bot in clients.items():
+        set_log_messenger(messenger)
+        mailing_has_already_been_sent = _get_mailing_flag(messenger, session)
+        log_info['mailing_has_already_been_sent'][Messenger(messenger).value] = mailing_has_already_been_sent
+
+        if flag == 'today' and mailing_has_already_been_sent:
+            _set_mailing_flag(messenger, False, session)
+            continue
+        if not changes:
+            continue
+
+        request = session.transaction().execute(
+            f'SELECT id FROM {get_users_table(messenger)} WHERE send_changes_tt = true;',
+            commit_tx=True,
+            settings=ydb.BaseRequestSettings().with_timeout(3).with_operation_timeout(2)
+        )
+        users = [row['id'] for row in request[0].rows]
+        total_count += len(users)
+        for user_id in users:
+            try:
+                _send_changes(bot, None, user_id, sql_date, text, inline_kb, session, logger, messenger)
+            except Exception:
+                logger.exception('Не удалось отправить изменения в расписании', extra={'user_id': user_id})
+            else:
+                final_count += 1
         log_info['is_sent'] = True
 
-        if flag == 'tomorrow':
-            if not mailing_has_already_been_sent:
-                session.transaction().execute(
-                    'UPSERT INTO app (key, value) VALUES ("mailing_has_been_sent", "true");',
-                    commit_tx=True,
-                    settings=ydb.BaseRequestSettings().with_timeout(3).with_operation_timeout(2)
-                )
+        if flag == 'tomorrow' and not mailing_has_already_been_sent:
+            _set_mailing_flag(messenger, True, session)
+
+    set_log_messenger(None)
+    if log_info['is_sent']:
+        log_info['total_count'] = total_count
+        log_info['final_count'] = final_count
 
     logger.debug('Завершена функция mailing_changes_tt', extra={'duration': time.time() - start_time, 'info': log_info})
 
@@ -252,7 +265,7 @@ def find_date(text):
     elif not (s2 := search(r'\d{1,2}\.\d{2}\.\d{2}', text)) is None:
         date = s2[0][:-2] + '20' + s2[0][-2:]
     elif not (s3 := search(r'\d{1,2}\.\d{2}', text)) is None:
-        date = s3[0] + '.' + time.strftime('%Y', time.localtime(time.time() + 10800))
+        date = s3[0] + '.' + time.strftime('%Y', msk_now())
     elif not (s4 := search('\\d{1,2} ' + f'({"|".join(months)})' + ' \\d{4}', text)) is None:
         sp = s4[0].split()
         for m in constants.months:
@@ -264,7 +277,7 @@ def find_date(text):
         for m in constants.months:
             if sp[1] == m['dec'] or sp[1] in m['abb_name']:
                 mon = ('0' + str(m['num']))[-2:]
-        date = sp[0] + '.' + mon + '.' + time.strftime('%Y', time.localtime(time.time() + 10800))
+        date = sp[0] + '.' + mon + '.' + time.strftime('%Y', msk_now())
     else:
         return None, None
 
@@ -305,15 +318,14 @@ def get_date(m, user, bot, session, *args, **kwargs):
 
 
 def call(m, user, bot, session, *args, **kwargs):
-    t = time.time() + 10800
-    time_now = time.localtime(t)
+    time_now = msk_now()
     sql_today = f'{time_now.tm_year}-{time_now.tm_mon}-{time_now.tm_mday}'
     date_today = f'{time_now.tm_mday}.{time_now.tm_mon}.{time_now.tm_year}'
 
     if time_now.tm_wday == 5:
-        tomorrow = time.localtime(t + 2 * 86400)
+        tomorrow = msk_now(2 * 86400)
     else:
-        tomorrow = time.localtime(t + 86400)
+        tomorrow = msk_now(86400)
     sql_tomorrow = f'{tomorrow.tm_year}-{tomorrow.tm_mon}-{tomorrow.tm_mday}'
     date_tomorrow = f'{tomorrow.tm_mday}.{tomorrow.tm_mon}.{tomorrow.tm_year}'
 

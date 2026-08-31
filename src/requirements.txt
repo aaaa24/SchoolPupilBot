@@ -1,7 +1,8 @@
-pyTelegramBotAPI
-ydb
-python-json-logger
-yandexcloud
-protobuf
-yookassa
-boto3
+pyTelegramBotAPI==4.36.1
+ydb==3.31.4
+python-json-logger==4.2.0
+yandexcloud==0.404.0
+protobuf==6.33.6
+yookassa==3.12.1
+boto3==1.43.83
+requests==2.34.2

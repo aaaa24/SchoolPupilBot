@@ -1,5 +1,7 @@
+import os
 from json import dumps, loads
 
+import requests
 import telebot
 
 from main import bot, logger, process_max_callback, process_command_message, process_text_message, set_connect, \
@@ -13,8 +15,40 @@ from messengers import (
     UnifiedCallbackQuery,
     UnifiedMessage,
     UnifiedPhoto,
+    enabled_messengers,
     max_keyboard_to_markup,
 )
+
+PROXY_SECRET_HEADER = 'X-Bot-Proxy-Secret'
+
+
+def _clients():
+    clients = {}
+    for messenger in enabled_messengers():
+        clients[messenger] = telegram_client if messenger is Messenger.TELEGRAM else MaxMessengerClient()
+    return clients
+
+
+def _proxy_payment(body):
+    url = os.getenv('SERVER_WEBHOOK_URL')
+    if not url:
+        logger.error('Не задан SERVER_WEBHOOK_URL для пересылки уведомления об оплате')
+        return {'statusCode': 500, 'body': '!'}
+
+    try:
+        response = requests.post(
+            f'{url.rstrip("/")}/internal/yookassa',
+            data=body.encode('utf-8'),
+            headers={'Content-Type': 'application/json',
+                     PROXY_SECRET_HEADER: os.getenv('PROXY_SECRET', '')},
+            timeout=10
+        )
+    except Exception:
+        log_traceback('Не удалось переслать уведомление об оплате')
+        return {'statusCode': 500, 'body': '!'}
+
+    logger.info('Уведомление об оплате переслано', extra={'status_code': response.status_code})
+    return {'statusCode': 200 if response.ok else 500, 'body': '!'}
 
 
 def _is_command(text):
@@ -161,11 +195,19 @@ def _parse_max_update(payload, context):
 
 
 def handler(event, context):
+    messengers = enabled_messengers()
+
     if 'httpMethod' in event:
         if event['path'] == '/telegram':
             set_log_messenger(Messenger.TELEGRAM)
         elif event['path'] == '/max':
             set_log_messenger(Messenger.MAX)
+
+        if event['path'] in ('/telegram', '/max'):
+            messenger = Messenger.TELEGRAM if event['path'] == '/telegram' else Messenger.MAX
+            if messenger not in messengers:
+                logger.warning('Мессенджер не обслуживается этим рантаймом')
+                return {'statusCode': 200, 'body': '!'}
 
         if event['path'] == '/telegram':
             message = telebot.types.Update.de_json(event['body'])
@@ -206,21 +248,17 @@ def handler(event, context):
             messenger = Messenger((payment.get('metadata') or {}).get('messenger', Messenger.TELEGRAM.value))
             set_log_messenger(messenger)
 
+            if messenger not in messengers:
+                return _proxy_payment(event['body'])
+
             session, _ = set_connect(50)
             if not session is None:
                 from pay import successful_payment
-                clients = {
-                    Messenger.TELEGRAM: telegram_client,
-                    Messenger.MAX: MaxMessengerClient(),
-                }
-                successful_payment(clients, payment, session, logger)
+                successful_payment(_clients(), payment, session, logger)
                 session.closing()
 
     elif 'details' in event and 'payload' in event['details']:
-        clients = {
-            Messenger.TELEGRAM: telegram_client,
-            Messenger.MAX: MaxMessengerClient(),
-        }
+        clients = _clients()
         if event['details']['payload'] == 'daily_statistics':
             from statistics import daily_statistics
             daily_statistics(clients, context, logger)

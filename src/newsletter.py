@@ -10,6 +10,7 @@ from telebot import types
 
 from messenger_context import get_users_table
 from messengers import TELEGRAM_CAPTION_LIMIT, MediaItem, Messenger
+from utils import msk_time
 
 
 def except_429(f, n=1, **k):
@@ -140,7 +141,7 @@ def _link_mentions(text):
 
 
 def _build_news(writing):
-    date = time.strftime('%H:%M %d.%m.%Y', time.gmtime(writing['date'] + 10800))
+    date = time.strftime('%H:%M %d.%m.%Y', msk_time(writing['date']))
 
     if '0' in writing:
         signer = f' от {writing["0"]["first_name"]} {writing["0"]["last_name"]}'
@@ -159,7 +160,7 @@ def _build_news(writing):
 
     if 'copy_history' in writing:
         for copied in writing['copy_history']:
-            date = time.strftime('%H:%M %d.%m.%Y', time.gmtime(copied['date'] + 10800))
+            date = time.strftime('%H:%M %d.%m.%Y', msk_time(copied['date']))
 
             url = f'https://vk.com/wall{copied["owner_id"]}_{copied["id"]}'
             text += f'\n\n<a href="{url}">Пересланная новость</a> ({date})\n\n'

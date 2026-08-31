@@ -8,6 +8,8 @@ import os
 
 from pythonjsonlogger import jsonlogger
 
+import cloud_logging
+
 _current_messenger = contextvars.ContextVar('messenger', default=None)
 
 
@@ -42,18 +44,9 @@ class LocalLoggingFormatter(logging.Formatter):
         timestamp = self.formatTime(record, self.datefmt)
         parts = [f'[{timestamp}]', f'[{record.levelname}]', record.getMessage()]
 
-        default_keys = {
-            'name', 'msg', 'args', 'levelname', 'levelno', 'pathname', 'filename', 'module',
-            'exc_info', 'exc_text', 'stack_info', 'lineno', 'funcName', 'created', 'msecs',
-            'relativeCreated', 'thread', 'threadName', 'processName', 'process', 'message',
-            'asctime', 'taskName'
-        }
-        extra_fields = {
-            key: value for key, value in record.__dict__.items()
-            if key not in default_keys and not key.startswith('_')
-        }
-        if extra_fields:
-            parts.append(f'extra={extra_fields}')
+        fields = cloud_logging.extra_fields(record)
+        if fields:
+            parts.append(f'extra={fields}')
 
         if record.exc_info:
             parts.append(self.formatException(record.exc_info))
@@ -85,6 +78,11 @@ logger.propagate = False
 logger.addHandler(logHandler)
 logger.setLevel(logging.DEBUG)
 
+cloud_log_handler = cloud_logging.build_handler()
+if cloud_log_handler is not None:
+    cloud_log_handler.addFilter(MessengerFilter())
+    logger.addHandler(cloud_log_handler)
+
 logger.debug('Создан logger', extra={'time_since_launch': time() - t0, 'log_mode': logging_mode})
 
 t1 = time()
@@ -95,14 +93,18 @@ import ydb
 import db
 from constants import Phrase
 from messenger_context import get_users_table
-from messengers import Messenger, TelegramMessengerClient
+from messengers import Messenger, TelegramMessengerClient, enabled_messengers
 from router import text_handling, callback_handling, commands, list_func, admin_commands, telegram_only_commands
 
 logger.debug('Завершён импорт', extra={'time_since_launch': time() - t0, 'duration': time() - t1})
 
 t1 = time()
-bot = TeleBot(os.getenv('TELEGRAM_BOT_TOKEN'))
-telegram_client = TelegramMessengerClient(bot)
+if Messenger.TELEGRAM in enabled_messengers():
+    bot = TeleBot(os.getenv('TELEGRAM_BOT_TOKEN'), threaded=False)
+    telegram_client = TelegramMessengerClient(bot)
+else:
+    bot = None
+    telegram_client = None
 
 driver = db.create_driver()
 driver.wait(fail_fast=True, timeout=5)
@@ -294,26 +296,22 @@ def event_decorator(func):
     return event
 
 
-@bot.message_handler(commands=['id', 'ID', 'Id', 'iD'])
 @event_decorator
 def my_id(m):
     logger.info(f'ID пользователя {m.from_user.id}')
     bot.reply_to(m, f'Ваш ID: `{m.from_user.id}`', parse_mode='MarkdownV2')
 
 
-@bot.message_handler(commands=list(commands.keys()))
 @event_decorator
 def cmd(m):
     process_command_message(m, bot)
 
 
-@bot.message_handler(content_types=['text', 'photo'])
 @event_decorator
 def answer(m):
     process_text_message(m, bot)
 
 
-@bot.callback_query_handler(func=lambda c: True)
 @event_decorator
 def callback_inline_btn(callback_query):
     session, number_attempts = set_connect(1000)
@@ -327,3 +325,10 @@ def callback_inline_btn(callback_query):
     callback_handling(callback_query, user, bot, session, logger=logger, context=callback_query.context,
                       messenger=callback_query.messenger)
     session.closing()
+
+
+if bot is not None:
+    bot.message_handler(commands=['id', 'ID', 'Id', 'iD'])(my_id)
+    bot.message_handler(commands=list(commands.keys()))(cmd)
+    bot.message_handler(content_types=['text', 'photo'])(answer)
+    bot.callback_query_handler(func=lambda c: True)(callback_inline_btn)

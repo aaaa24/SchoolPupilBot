@@ -1,0 +1,11 @@
+[Unit]
+Description=Ежедневная проверка срока сертификата
+
+[Timer]
+OnCalendar=*-*-* 09:00:00
+Timezone=Europe/Moscow
+Persistent=true
+Unit=schoolpupilbot-cert-check.service
+
+[Install]
+WantedBy=timers.target

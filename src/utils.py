@@ -6,6 +6,16 @@ from telebot import types, apihelper
 from messenger_context import get_messenger_from_m, get_users_table
 from messengers import ScreenState, force_new_screen
 
+MSK_OFFSET = 10800
+
+
+def msk_time(timestamp):
+    return time.gmtime(timestamp + MSK_OFFSET)
+
+
+def msk_now(offset=0):
+    return msk_time(time.time() + offset)
+
 
 def try_delete_message(bot, chat_id, message_id):
     try:
