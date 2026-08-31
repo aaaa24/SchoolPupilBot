@@ -27,7 +27,7 @@ def info(m, user, bot, session, *args, **kwargs):
     inline_kb = types.InlineKeyboardMarkup()
     inline_kb.row(types.InlineKeyboardButton('💬 Обратная связь', callback_data='fback'))
     if other_bot_url:
-        inline_kb.row(types.InlineKeyboardButton(f'Бот в {messenger.other.nice_name}', url=other_bot_url))
+        inline_kb.row(types.InlineKeyboardButton(f'🤖 Бот в {messenger.other.nice_name}', url=other_bot_url))
     inline_kb.row(types.InlineKeyboardButton('🏠 В меню', callback_data='menu'))
 
     send_text(bot, m, text, inline_kb)
