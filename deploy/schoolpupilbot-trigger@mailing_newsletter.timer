@@ -1,0 +1,11 @@
+[Unit]
+Description=Рассылка новостей каждый час
+
+[Timer]
+OnCalendar=*-*-* *:00:00
+Timezone=Europe/Moscow
+Persistent=false
+Unit=schoolpupilbot-trigger@mailing_newsletter.service
+
+[Install]
+WantedBy=timers.target

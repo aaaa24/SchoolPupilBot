@@ -1,4 +1,4 @@
-name: CD — deploy to Yandex Cloud Functions
+name: CD — deploy to Yandex Cloud Functions and server
 
 on:
   push:
@@ -13,7 +13,7 @@ permissions:
 env:
   SRC_PATH: "./src"
   BOT_ENTRYPOINT: "index.handler"
-  RUNTIME: "python312"
+  RUNTIME: "python314"
 
 jobs:
   deploy-preprod:
@@ -46,10 +46,7 @@ jobs:
           environment: |
             YDB_DATABASE=${{ secrets.YDB_DATABASE }}
             YDB_ENDPOINT=${{ secrets.YDB_ENDPOINT }}
-            CHANNEL_PERVYE=${{ secrets.CHANNEL_PERVYE }}
-            TELEGRAM_SUPERADMIN=${{ secrets.TELEGRAM_SUPERADMIN }}
             MAX_SUPERADMIN=${{ secrets.MAX_SUPERADMIN }}
-            TELEGRAM_TECHNO_INFO=${{ secrets.TELEGRAM_TECHNO_INFO }}
             MAX_TECHNO_INFO=${{ secrets.MAX_TECHNO_INFO }}
             LOG_GROUP_ID=${{ secrets.LOG_GROUP_ID }}
             VK_APP_ID=${{ secrets.VK_APP_ID }}
@@ -60,14 +57,16 @@ jobs:
             AWS_REGION=${{ secrets.AWS_REGION }}
             S3_ENDPOINT_URL=${{ secrets.S3_ENDPOINT_URL }}
             BUCKET_NAME=${{ secrets.BUCKET_NAME }}
+            SERVER_WEBHOOK_URL=${{ secrets.SERVER_WEBHOOK_URL }}
+            MESSENGERS=max
             YDB_MODE=cloud
             LOG_MODE=cloud
           secrets: |
-            TELEGRAM_BOT_TOKEN=${{ secrets.LOCKBOX_ID }}/latest/TELEGRAM_BOT_TOKEN
             MAX_BOT_TOKEN=${{ secrets.LOCKBOX_ID }}/latest/MAX_BOT_TOKEN
             YOOKASSA_SECRET_KEY=${{ secrets.LOCKBOX_ID }}/latest/YOOKASSA_SECRET_KEY
             AWS_SECRET_ACCESS_KEY=${{ secrets.LOCKBOX_ID }}/latest/AWS_SECRET_ACCESS_KEY
             VK_ACCESS_TOKEN=${{ secrets.LOCKBOX_ID }}/latest/VK_ACCESS_TOKEN
+            PROXY_SECRET=${{ secrets.LOCKBOX_ID }}/latest/PROXY_SECRET
 
   deploy-prod:
     if: github.ref == 'refs/heads/main'
@@ -76,3 +75,54 @@ jobs:
     env:
       BOT_FUNCTION_NAME: bot-prod
     steps: *deploy-steps
+
+  deploy-server-preprod:
+    if: github.ref == 'refs/heads/develop'
+    runs-on: ubuntu-latest
+    environment: preprod
+    env:
+      INSTANCE: preprod
+      HEALTH_PORT: 8081
+    steps: &deploy-server-steps
+      - uses: actions/checkout@v4
+
+      - name: Настроить доступ по SSH
+        run: |
+          mkdir -p ~/.ssh
+          printf '%s\n' "${{ secrets.SERVER_SSH_KEY }}" > ~/.ssh/id_deploy
+          chmod 600 ~/.ssh/id_deploy
+          ssh-keyscan -H "${{ secrets.SERVER_HOST }}" >> ~/.ssh/known_hosts
+
+      - name: Выгрузить код
+        env:
+          TARGET: ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }}:/opt/schoolpupilbot/${{ env.INSTANCE }}
+        run: |
+          for dir in src server deploy; do
+            rsync -az --delete -e "ssh -i ~/.ssh/id_deploy" "$dir/" "$TARGET/$dir/"
+          done
+
+      - name: Обновить зависимости и перезапустить
+        run: |
+          ssh -i ~/.ssh/id_deploy "${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }}" \
+            "set -e
+             cd /opt/schoolpupilbot/$INSTANCE
+             venv/bin/pip install -q -r server/requirements.txt
+             sudo systemctl restart schoolpupilbot@$INSTANCE"
+
+      - name: Проверить, что экземпляр поднялся
+        run: |
+          ssh -i ~/.ssh/id_deploy "${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }}" \
+            "for i in \$(seq 30); do
+               curl -fsS http://127.0.0.1:$HEALTH_PORT/health && exit 0
+               sleep 2
+             done
+             exit 1"
+
+  deploy-server-prod:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment: prod
+    env:
+      INSTANCE: prod
+      HEALTH_PORT: 8080
+    steps: *deploy-server-steps

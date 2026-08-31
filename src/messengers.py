@@ -112,6 +112,13 @@ class Messenger(Enum):
         return {'telegram': 4096, 'max': 4000}[self.value]
 
 
+def enabled_messengers() -> list[Messenger]:
+    value = os.getenv('MESSENGERS')
+    if not value:
+        return list(Messenger)
+    return [Messenger(name.strip()) for name in value.split(',') if name.strip()]
+
+
 class BaseMessengerClient(ABC):
     platform: Messenger
 
