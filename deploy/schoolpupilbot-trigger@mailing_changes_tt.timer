@@ -2,8 +2,8 @@
 Description=Рассылка изменений в расписании в 08:00 и 20:00 по Москве
 
 [Timer]
-OnCalendar=*-*-* 08,20:00:00
-Timezone=Europe/Moscow
+# 08:00 и 20:00 МСК
+OnCalendar=*-*-* 05,17:00:00 UTC
 Persistent=false
 Unit=schoolpupilbot-trigger@mailing_changes_tt.service
 

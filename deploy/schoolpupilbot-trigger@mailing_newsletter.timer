@@ -2,8 +2,7 @@
 Description=Рассылка новостей каждый час
 
 [Timer]
-OnCalendar=*-*-* *:00:00
-Timezone=Europe/Moscow
+OnCalendar=*-*-* *:00:00 UTC
 Persistent=false
 Unit=schoolpupilbot-trigger@mailing_newsletter.service
 
