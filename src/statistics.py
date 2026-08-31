@@ -32,7 +32,8 @@ def daily_statistics(clients, context, logger, *args, **kwargs):
             logger.warning('Не задан технический чат')
             continue
 
-        messenger_logs = [log for log in logs if log.json_payload.get('messenger') == messenger.value]
+        messenger_logs = [log for log in logs if 'messenger' in log.json_payload
+                          and log.json_payload['messenger'] == messenger.value]
         try:
             for text in create_stat_from_logs(messenger_logs, messenger):
                 bot.send_message(messenger.techno_chat_id, text, parse_mode='HTML', disable_notification=True)
