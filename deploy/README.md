@@ -33,6 +33,12 @@ Telegram работает на выделенном сервере, MAX оста
 
 ## 2. Пользователи и каталоги
 
+Код на сервер CD выкладывает через `rsync`, он должен быть на машине:
+
+```bash
+sudo apt install -y rsync
+```
+
 Службы работают от системного пользователя `schoolpupilbot` и только читают код,
 а пишет в каталоги отдельный пользователь `deploy`. Обычный аккаунт с полным `sudo`
 для деплоя не годится: утечка ключа из GitHub означала бы полный доступ к серверу.
@@ -43,12 +49,16 @@ sudo useradd --create-home --shell /bin/bash deploy
 
 sudo mkdir -p /opt/schoolpupilbot/{prod,preprod} /etc/schoolpupilbot /var/www/certbot
 sudo chown -R deploy:schoolpupilbot /opt/schoolpupilbot
-sudo chmod -R g+rX /opt/schoolpupilbot
+sudo chmod -R g+rX,o-rwx /opt/schoolpupilbot
+sudo find /opt/schoolpupilbot -type d -exec chmod g+s {} +
 
 sudo cp authorized_key.json /etc/schoolpupilbot/
 sudo chown schoolpupilbot:schoolpupilbot /etc/schoolpupilbot/authorized_key.json
 sudo chmod 600 /etc/schoolpupilbot/authorized_key.json
 ```
+
+Бит `g+s` на каталогах обязателен: без него всё, что создаёт `deploy` (код, venv,
+файл окружения), получает группу `deploy`, и служба под `schoolpupilbot` не может это прочитать.
 
 Ключ сервисного аккаунта — единственное, что кладётся на сервер руками.
 Файл окружения `/opt/schoolpupilbot/<экземпляр>/env` собирает CD из секретов GitHub,
@@ -62,12 +72,29 @@ sudo chmod 600 /etc/schoolpupilbot/authorized_key.json
 
 ```bash
 curl -LsSf https://astral.sh/uv/install.sh | sh
-uv python install 3.14
+```
+
+Интерпретатор ставится в `/opt/python`, а не в домашний каталог: в юнитах включён
+`ProtectHome=true`, и служба не увидела бы `/home/deploy` — запуск падал бы
+с `status=203/EXEC`. Эта команда — от `admin`:
+
+```bash
+sudo env UV_PYTHON_INSTALL_DIR=/opt/python /home/deploy/.local/bin/uv python install 3.14
+sudo chmod -R a+rX /opt/python
+```
+
+Окружения создаёт `deploy`, он же ставит в них зависимости при деплое:
+
+```bash
+export UV_PYTHON_INSTALL_DIR=/opt/python
 
 for env in prod preprod; do
-    uv venv --python 3.14 /opt/schoolpupilbot/$env/venv
+    uv venv --seed --python 3.14 /opt/schoolpupilbot/$env/venv
 done
 ```
+
+`--seed` обязателен: без него `uv venv` создаёт окружение без `pip`, а зависимости
+на сервере ставит именно он.
 
 Зависимости ставятся первым же деплоем, вручную их устанавливать не нужно.
 
@@ -172,6 +199,9 @@ sudo nginx -t && sudo systemctl reload nginx
 
 Проксировать пока некуда, службы поднимутся на шаге 7 — до этого на `/health` будет 502.
 
+Это единственная установка конфига руками: дальше его обновляет CD на ветке `main`
+(шаг «Обновить конфиг nginx»), поэтому правки маршрутов достаточно закоммитить.
+
 ## 6. Деплой из GitHub
 
 Секреты репозитория (общие): `SERVER_HOST`, `SERVER_USER`, `SERVER_SSH_KEY`.
@@ -179,6 +209,11 @@ sudo nginx -t && sudo systemctl reload nginx
 уходили только в облако: `TELEGRAM_SUPERADMIN`, `TELEGRAM_TECHNO_INFO`, `CHANNEL_PERVYE`,
 `LOCKBOX_ID`, `LOG_GROUP_ID`, `YDB_DATABASE`, `YDB_ENDPOINT`, `VK_APP_ID`, `VK_DOMAIN`,
 `YOOKASSA_ACCOUNT_ID`, `AWS_ACCESS_KEY_ID`, `AWS_REGION`, `S3_ENDPOINT_URL`, `BUCKET_NAME`.
+
+Отдельно — `SERVER_WEBHOOK_URL`: адрес экземпляра сервера, на который функция пересылает
+уведомления об оплате. В `prod` это `https://SERVER_ADDRESS`, в `preprod` —
+`https://SERVER_ADDRESS/preprod`. Пустым его оставить нельзя: Cloud Functions отклоняет
+версию с пустым значением переменной окружения.
 
 Из них CD собирает `/opt/schoolpupilbot/<экземпляр>/env` и кладёт его рядом с кодом
 (см. шаг «Выгрузить файл окружения» в `.github/workflows/cd.yml`). Изменил секрет —
@@ -194,12 +229,12 @@ sudo chown deploy:deploy /home/deploy/.ssh/authorized_keys
 sudo chmod 600 /home/deploy/.ssh/authorized_keys
 ```
 
-Пользователю деплоя разрешить только перезапуск служб. Без `NOPASSWD` деплой упадёт:
-по SSH терминала нет и ввести пароль некому.
+Пользователю деплоя разрешить только перезапуск служб и установку конфига nginx.
+Без `NOPASSWD` деплой упадёт: по SSH терминала нет и ввести пароль некому.
 
 ```bash
 sudo tee /etc/sudoers.d/schoolpupilbot << 'EOF'
-deploy ALL=(root) NOPASSWD: /usr/bin/systemctl restart schoolpupilbot@prod, /usr/bin/systemctl restart schoolpupilbot@preprod
+deploy ALL=(root) NOPASSWD: /usr/bin/systemctl restart schoolpupilbot@prod, /usr/bin/systemctl restart schoolpupilbot@preprod, /usr/bin/systemctl reload nginx, /usr/sbin/nginx -t, /usr/bin/install -m 644 -o root -g root /opt/schoolpupilbot/prod/nginx.rendered /etc/nginx/sites-available/schoolpupilbot
 EOF
 sudo chmod 440 /etc/sudoers.d/schoolpupilbot
 sudo visudo -c
@@ -208,14 +243,31 @@ sudo visudo -c
 Первый деплой (push в `develop` или `main`) выгрузит код, поставит зависимости
 и создаст файл окружения — до него службы запускать нечем.
 
+Конфиг nginx тоже обновляет CD, но только на ветке `main`: nginx один на машину
+и обслуживает оба экземпляра, поэтому менять вход прода пушем в `develop` нельзя.
+Шаг подставляет адрес сервера вместо `SERVER_ADDRESS`, проверяет конфиг через
+`nginx -t` и перезагружает nginx; при ошибке проверки деплой падает, а работающий
+nginx продолжает жить со старым конфигом. Правки маршрутов preprod доезжают
+на сервер вместе со слиянием в `main`.
+
 ## 7. Службы и таймеры
 
+Юниты берутся из выгруженной деплоем копии репозитория:
+
 ```bash
+cd /opt/schoolpupilbot/preprod/deploy
 sudo cp schoolpupilbot@.service schoolpupilbot-trigger@.service \
         schoolpupilbot-cert-check.service certbot-renew.service \
         *.timer /etc/systemd/system/
 sudo systemctl daemon-reload
-sudo systemctl enable --now schoolpupilbot@prod schoolpupilbot@preprod
+sudo systemctl enable --now schoolpupilbot@preprod
+```
+
+Экземпляр prod и таймеры включаются после деплоя ветки `main` — до него нет ни кода,
+ни файла окружения в `/opt/schoolpupilbot/prod`, а все таймеры работают только с prod:
+
+```bash
+sudo systemctl enable --now schoolpupilbot@prod
 sudo systemctl enable --now schoolpupilbot-trigger@mailing_newsletter.timer \
     schoolpupilbot-trigger@mailing_changes_tt.timer \
     schoolpupilbot-trigger@daily_statistics.timer \
