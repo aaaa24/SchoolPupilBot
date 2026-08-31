@@ -8,7 +8,7 @@ Type=exec
 User=schoolpupilbot
 Group=schoolpupilbot
 WorkingDirectory=/opt/schoolpupilbot/%i
-EnvironmentFile=/etc/schoolpupilbot/%i.env
+EnvironmentFile=/opt/schoolpupilbot/%i/env
 Environment=TZ=UTC
 Environment=PYTHONPATH=/opt/schoolpupilbot/%i/src
 Environment=PYTHONUNBUFFERED=1
