@@ -7,7 +7,7 @@ Type=oneshot
 User=schoolpupilbot
 Group=schoolpupilbot
 WorkingDirectory=/opt/schoolpupilbot/prod
-EnvironmentFile=/etc/schoolpupilbot/prod.env
+EnvironmentFile=/opt/schoolpupilbot/prod/env
 Environment=TZ=UTC
 ExecStart=/opt/schoolpupilbot/prod/venv/bin/python /opt/schoolpupilbot/prod/server/bootstrap.py \
     /bin/sh -c 'curl -fsS --max-time 600 -X POST \
