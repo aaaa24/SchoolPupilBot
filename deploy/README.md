@@ -3,7 +3,11 @@
 Telegram работает на выделенном сервере, MAX остаётся в Cloud Functions.
 Кодовая база общая, разделение задаёт переменная `MESSENGERS`.
 
-Ниже `SERVER_ADDRESS` — IP-адрес сервера (или домен, если выбран запасной вариант).
+Ниже `SERVER_ADDRESS` — IP-адрес сервера (или домен, если выбран запасной вариант),
+`DEPLOY_USER` — пользователь, от имени которого работает деплой (секрет `SERVER_USER`).
+
+Вручную настраивается только машина: пользователи, каталоги, venv, сертификат, nginx и юниты.
+Код, зависимости и файл окружения экземпляра выкладывает CD.
 
 ## 1. Подготовка в Yandex Cloud
 
@@ -27,36 +31,42 @@ Telegram работает на выделенном сервере, MAX оста
 
    Строку `mailing_has_been_sent` удалить после успешного перехода.
 
-## 2. Пользователь и каталоги
+## 2. Пользователи и каталоги
+
+Службы работают от системного пользователя `schoolpupilbot` и только читают код,
+а пишет в каталоги пользователь деплоя.
 
 ```bash
 sudo useradd --system --home-dir /opt/schoolpupilbot --shell /usr/sbin/nologin schoolpupilbot
 sudo mkdir -p /opt/schoolpupilbot/{prod,preprod} /etc/schoolpupilbot /var/www/certbot
-sudo chown -R schoolpupilbot:schoolpupilbot /opt/schoolpupilbot
+sudo chown -R DEPLOY_USER:schoolpupilbot /opt/schoolpupilbot
+sudo chmod -R g+rX /opt/schoolpupilbot
 
 sudo cp authorized_key.json /etc/schoolpupilbot/
 sudo chown schoolpupilbot:schoolpupilbot /etc/schoolpupilbot/authorized_key.json
 sudo chmod 600 /etc/schoolpupilbot/authorized_key.json
 ```
 
-Заполнить `/etc/schoolpupilbot/prod.env` и `/etc/schoolpupilbot/preprod.env`
-по образцу `env.example` (у preprod `PORT=8081`, `WORKERS=1`,
-`LOG_RESOURCE_ID=bot-server-preprod`, свои лог-группа и бакет).
+Ключ сервисного аккаунта — единственное, что кладётся на сервер руками.
+Файл окружения `/opt/schoolpupilbot/<экземпляр>/env` собирает CD из секретов GitHub,
+а секреты приложения `bootstrap.py` берёт из Lockbox при каждом запуске службы.
+Образец файла — `env.example`, он нужен только для запуска сервера без деплоя.
 
-## 3. Python 3.14 и зависимости
+## 3. Python 3.14 и venv
 
-Системный интерпретатор Debian 13 не трогаем.
+Системный интерпретатор Debian 13 не трогаем. Всё — от имени пользователя деплоя,
+он же ставит зависимости в CD.
 
 ```bash
 curl -LsSf https://astral.sh/uv/install.sh | sh
 uv python install 3.14
 
 for env in prod preprod; do
-    sudo -u schoolpupilbot uv venv --python 3.14 /opt/schoolpupilbot/$env/venv
-    sudo -u schoolpupilbot /opt/schoolpupilbot/$env/venv/bin/pip install \
-        -r /opt/schoolpupilbot/$env/server/requirements.txt
+    uv venv --python 3.14 /opt/schoolpupilbot/$env/venv
 done
 ```
+
+Зависимости ставятся первым же деплоем, вручную их устанавливать не нужно.
 
 ## 4. Сертификат
 
@@ -98,7 +108,29 @@ sudo nginx -t && sudo systemctl reload nginx
 
 AmneziaVPN занимает 8443/TCP и 49435/UDP, порты 80 и 443 свободны.
 
-## 6. Службы и таймеры
+## 6. Деплой из GitHub
+
+Секреты репозитория (общие): `SERVER_HOST`, `SERVER_USER`, `SERVER_SSH_KEY`.
+Секреты окружений `prod` и `preprod` — те же, что у функции, плюс те, что раньше
+уходили только в облако: `TELEGRAM_SUPERADMIN`, `TELEGRAM_TECHNO_INFO`, `CHANNEL_PERVYE`,
+`LOCKBOX_ID`, `LOG_GROUP_ID`, `YDB_DATABASE`, `YDB_ENDPOINT`, `VK_APP_ID`, `VK_DOMAIN`,
+`YOOKASSA_ACCOUNT_ID`, `AWS_ACCESS_KEY_ID`, `AWS_REGION`, `S3_ENDPOINT_URL`, `BUCKET_NAME`.
+
+Из них CD собирает `/opt/schoolpupilbot/<экземпляр>/env` и кладёт его рядом с кодом
+(см. шаг «Выгрузить файл окружения» в `.github/workflows/cd.yml`). Изменил секрет —
+перезапустил workflow, файл на сервере перезапишется.
+
+Пользователю деплоя разрешить только перезапуск служб:
+
+```
+DEPLOY_USER ALL=(root) NOPASSWD: /usr/bin/systemctl restart schoolpupilbot@prod, \
+    /usr/bin/systemctl restart schoolpupilbot@preprod
+```
+
+Первый деплой (push в `develop` или `main`) выгрузит код, поставит зависимости
+и создаст файл окружения — до него службы запускать нечем.
+
+## 7. Службы и таймеры
 
 ```bash
 sudo cp schoolpupilbot@.service schoolpupilbot-trigger@.service \
@@ -114,7 +146,7 @@ sudo systemctl enable --now schoolpupilbot-trigger@mailing_newsletter.timer \
 Таймеры обращаются к уже работающему процессу, а не поднимают новый: иначе каждый
 запуск это ещё одно обращение в Lockbox и новое подключение к базе.
 
-## 7. Вебхуки
+## 8. Вебхуки
 
 `setWebhook` вызывать с самого сервера — из России `api.telegram.org` недоступен.
 
@@ -129,15 +161,6 @@ curl -s "https://api.telegram.org/bot$TOKEN/getWebhookInfo"
 ```
 
 Для preprod адрес `https://SERVER_ADDRESS/preprod/telegram` и свой токен.
-
-## 8. Права для деплоя
-
-Отдельному пользователю деплоя разрешить только перезапуск служб:
-
-```
-deploy ALL=(root) NOPASSWD: /usr/bin/systemctl restart schoolpupilbot@prod, \
-    /usr/bin/systemctl restart schoolpupilbot@preprod
-```
 
 ## 9. Проверка
 

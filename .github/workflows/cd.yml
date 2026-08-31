@@ -82,7 +82,8 @@ jobs:
     environment: preprod
     env:
       INSTANCE: preprod
-      HEALTH_PORT: 8081
+      PORT: 8081
+      WORKERS: 1
     steps: &deploy-server-steps
       - uses: actions/checkout@v4
 
@@ -101,11 +102,50 @@ jobs:
             rsync -az --delete -e "ssh -i ~/.ssh/id_deploy" "$dir/" "$TARGET/$dir/"
           done
 
+      - name: Выгрузить файл окружения
+        run: |
+          cat > instance.env << 'EOF'
+          MESSENGERS=telegram
+          PORT=${{ env.PORT }}
+          WORKERS=${{ env.WORKERS }}
+
+          LOCKBOX_SECRET_ID=${{ secrets.LOCKBOX_ID }}
+          YC_SERVICE_ACCOUNT_KEY_FILE=/etc/schoolpupilbot/authorized_key.json
+
+          YDB_MODE=cloud-local
+          YDB_DATABASE=${{ secrets.YDB_DATABASE }}
+          YDB_ENDPOINT=${{ secrets.YDB_ENDPOINT }}
+
+          LOG_MODE=local
+          LOG_INGEST=cloud
+          LOG_GROUP_ID=${{ secrets.LOG_GROUP_ID }}
+          LOG_RESOURCE_ID=bot-server-${{ env.INSTANCE }}
+
+          TELEGRAM_SUPERADMIN=${{ secrets.TELEGRAM_SUPERADMIN }}
+          TELEGRAM_TECHNO_INFO=${{ secrets.TELEGRAM_TECHNO_INFO }}
+          CHANNEL_PERVYE=${{ secrets.CHANNEL_PERVYE }}
+
+          VK_APP_ID=${{ secrets.VK_APP_ID }}
+          VK_DOMAIN=${{ secrets.VK_DOMAIN }}
+
+          YOOKASSA_ACCOUNT_ID=${{ secrets.YOOKASSA_ACCOUNT_ID }}
+
+          AWS_ACCESS_KEY_ID=${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_REGION=${{ secrets.AWS_REGION }}
+          S3_ENDPOINT_URL=${{ secrets.S3_ENDPOINT_URL }}
+          BUCKET_NAME=${{ secrets.BUCKET_NAME }}
+
+          CERT_PATH=/etc/letsencrypt/live/${{ secrets.SERVER_HOST }}/cert.pem
+          EOF
+          scp -i ~/.ssh/id_deploy instance.env \
+            "${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }}:/opt/schoolpupilbot/$INSTANCE/env"
+
       - name: Обновить зависимости и перезапустить
         run: |
           ssh -i ~/.ssh/id_deploy "${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }}" \
             "set -e
              cd /opt/schoolpupilbot/$INSTANCE
+             chmod 640 env
              venv/bin/pip install -q -r server/requirements.txt
              sudo systemctl restart schoolpupilbot@$INSTANCE"
 
@@ -113,7 +153,7 @@ jobs:
         run: |
           ssh -i ~/.ssh/id_deploy "${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }}" \
             "for i in \$(seq 30); do
-               curl -fsS http://127.0.0.1:$HEALTH_PORT/health && exit 0
+               curl -fsS http://127.0.0.1:$PORT/health && exit 0
                sleep 2
              done
              exit 1"
@@ -124,5 +164,6 @@ jobs:
     environment: prod
     env:
       INSTANCE: prod
-      HEALTH_PORT: 8080
+      PORT: 8080
+      WORKERS: 2
     steps: *deploy-server-steps
