@@ -1,0 +1,16 @@
+[Unit]
+Description=Проверка срока сертификата Школьного помощника
+
+[Service]
+Type=oneshot
+User=schoolpupilbot
+Group=schoolpupilbot
+WorkingDirectory=/opt/schoolpupilbot/prod
+EnvironmentFile=/etc/schoolpupilbot/prod.env
+ExecStart=/opt/schoolpupilbot/prod/venv/bin/python /opt/schoolpupilbot/prod/server/bootstrap.py \
+    /opt/schoolpupilbot/prod/deploy/check-cert.sh
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true

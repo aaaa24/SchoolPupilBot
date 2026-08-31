@@ -1,0 +1,36 @@
+[Unit]
+Description=Школьный помощник, Telegram (%i)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=exec
+User=schoolpupilbot
+Group=schoolpupilbot
+WorkingDirectory=/opt/schoolpupilbot/%i
+EnvironmentFile=/etc/schoolpupilbot/%i.env
+Environment=TZ=UTC
+Environment=PYTHONPATH=/opt/schoolpupilbot/%i/src
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/opt/schoolpupilbot/%i/venv/bin/python /opt/schoolpupilbot/%i/server/bootstrap.py \
+    /opt/schoolpupilbot/%i/venv/bin/gunicorn \
+    --chdir /opt/schoolpupilbot/%i/server \
+    --bind 127.0.0.1:${PORT} \
+    --workers ${WORKERS} --worker-class gthread --threads 4 \
+    --timeout 120 --graceful-timeout 30 \
+    --access-logfile - --error-logfile - \
+    app:app
+Restart=always
+RestartSec=10
+MemoryMax=800M
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+
+[Install]
+WantedBy=multi-user.target

@@ -1,13 +1,15 @@
+import calendar
 import os
 import time
 
 from google.protobuf import timestamp_pb2
 from telebot import types
 
+import cloud_logging
 from constants import Phrase
 from messenger_context import get_messenger_from_kwargs
 from messengers import Messenger
-from utils import send_text
+from utils import MSK_OFFSET, msk_now, send_text
 
 
 def daily_statistics(clients, context, logger, *args, **kwargs):
@@ -16,9 +18,13 @@ def daily_statistics(clients, context, logger, *args, **kwargs):
 
     since = get_timestamp(offset=300, flag='since_day')
     until = get_timestamp()
-    logs = get_logs(os.getenv('LOG_GROUP_ID'), context.function_name, 'type_event EXISTS', since=since, until=until)
 
-    from main import set_log_messenger
+    from main import cloud_log_handler, set_log_messenger
+    if cloud_log_handler is not None:
+        cloud_log_handler.flush()
+
+    logs = get_logs(os.getenv('LOG_GROUP_ID'), cloud_logging.get_resource_id(context), 'type_event EXISTS',
+                    since=since, until=until)
 
     for messenger, bot in clients.items():
         set_log_messenger(messenger)
@@ -71,7 +77,7 @@ def plus_count(obj, key):
 
 def get_timestamp(offset=0, flag=None):
     if flag:
-        mark = list(time.localtime())
+        mark = list(msk_now())
         if flag == 'since_minute':
             mark[5] = 0
         elif flag == 'since_hour':
@@ -97,8 +103,10 @@ def get_timestamp(offset=0, flag=None):
             mark[1] -= 1
         elif flag == 'year':
             mark[1] -= 1
-        seconds = int(time.mktime(tuple(mark)) - offset)
-        seconds -= 10800
+        mark[0] += (mark[1] - 1) // 12
+        mark[1] = (mark[1] - 1) % 12 + 1
+        seconds = int(calendar.timegm(tuple(mark)) - offset)
+        seconds -= MSK_OFFSET
     else:
         seconds = int(time.time() - offset)
     timestamp = timestamp_pb2.Timestamp(seconds=seconds)
@@ -114,16 +122,15 @@ def get_filter_with_timestamp(text_filter, start=None, end=None):
     return text_filter
 
 
-def get_logs(log_group_id, function_id, text_filter, since=None, until=None):
-    import yandexcloud
+def get_logs(log_group_id, resource_id, text_filter, since=None, until=None):
     from yandex.cloud.logging.v1.log_reading_service_pb2 import ReadRequest
     from yandex.cloud.logging.v1.log_reading_service_pb2 import Criteria
     from yandex.cloud.logging.v1.log_reading_service_pb2_grpc import LogReadingServiceStub
 
-    cloud_logging_service = yandexcloud.SDK().client(LogReadingServiceStub)
+    cloud_logging_service = cloud_logging.create_sdk().client(LogReadingServiceStub)
     criteria = Criteria(
         log_group_id=log_group_id,
-        resource_ids=[function_id],
+        resource_ids=[resource_id],
         filter=text_filter,
         since=since,
         until=until
@@ -152,7 +159,13 @@ def call(m, user, bot, session, *args, **kwargs):
     text_filter = f'type_event EXISTS AND json_payload.messenger = "{messenger.value}"'
     since = get_timestamp(flag='since_day')
     until = get_timestamp()
-    logs = get_logs(os.getenv('LOG_GROUP_ID'), context.function_name, text_filter, since=since, until=until)
+
+    from main import cloud_log_handler
+    if cloud_log_handler is not None:
+        cloud_log_handler.flush()
+
+    logs = get_logs(os.getenv('LOG_GROUP_ID'), cloud_logging.get_resource_id(context), text_filter,
+                    since=since, until=until)
 
     parts_text = create_stat_from_logs(logs, messenger)
     is_callback = hasattr(m, 'message')
@@ -192,7 +205,7 @@ def call(m, user, bot, session, *args, **kwargs):
 def create_stat_text(messenger, count, users, commands, datas, levels, user_commands, user_datas, user_levels,
                      date1=None, date2=None):
     if date1 is None:
-        date1 = time.strftime('%d.%m.%Y', time.localtime())
+        date1 = time.strftime('%d.%m.%Y', msk_now())
     if date2 is None:
         text = f'<b>Статистика {messenger.nice_name} за {date1}</b>'
     else:

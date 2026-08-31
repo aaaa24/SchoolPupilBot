@@ -1,0 +1,20 @@
+[Unit]
+Description=Задача %i для Школьного помощника
+After=schoolpupilbot@prod.service
+
+[Service]
+Type=oneshot
+User=schoolpupilbot
+Group=schoolpupilbot
+WorkingDirectory=/opt/schoolpupilbot/prod
+EnvironmentFile=/etc/schoolpupilbot/prod.env
+Environment=TZ=UTC
+ExecStart=/opt/schoolpupilbot/prod/venv/bin/python /opt/schoolpupilbot/prod/server/bootstrap.py \
+    /bin/sh -c 'curl -fsS --max-time 600 -X POST \
+    -H "X-Bot-Proxy-Secret: $PROXY_SECRET" \
+    http://127.0.0.1:$PORT/internal/trigger/%i'
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true

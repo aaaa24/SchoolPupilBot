@@ -1,4 +1,3 @@
-import time
 from datetime import datetime, timedelta
 from re import match, search, sub
 
@@ -7,7 +6,7 @@ from telebot import types
 
 import constants
 from constants import Phrase, months
-from utils import send_text, edit_level, create_inline_kb
+from utils import send_text, edit_level, create_inline_kb, msk_now
 
 
 def call_schedule(m, user, bot, session, *args, **kwargs):
@@ -58,7 +57,7 @@ def get_holiday_date(number_day):
 
 
 def holidays(m, user, bot, session, *args, **kwargs):
-    current_time = time.localtime()
+    current_time = msk_now()
     current_date = (current_time.tm_year, current_time.tm_mon, current_time.tm_mday)
     if current_date[1:] >= (9, 1):
         start_year = current_date[0]

@@ -1,0 +1,11 @@
+[Unit]
+Description=Дневная статистика в 23:55 по Москве
+
+[Timer]
+OnCalendar=*-*-* 23:55:00
+Timezone=Europe/Moscow
+Persistent=false
+Unit=schoolpupilbot-trigger@daily_statistics.service
+
+[Install]
+WantedBy=timers.target
