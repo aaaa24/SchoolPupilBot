@@ -98,6 +98,22 @@ class Messenger(Enum):
         return {'telegram': 'https://t.me', 'max': 'https://max.ru'}[self.value]
 
     @property
+    def bot_username(self):
+        value = os.getenv(f'{self.value.upper()}_BOT_USERNAME')
+        return value.strip().lstrip('@') if value else None
+
+    @property
+    def other(self):
+        return Messenger.MAX if self is Messenger.TELEGRAM else Messenger.TELEGRAM
+
+    def bot_url(self, start=None):
+        if not self.bot_username:
+            return None
+
+        url = f'{self.bot_url_domain}/{self.bot_username}'
+        return f'{url}?start={start}' if start else url
+
+    @property
     def superadmin_id(self) -> Optional[int]:
         value = os.getenv(f'{self.value.upper()}_SUPERADMIN')
         return int(value) if value else None

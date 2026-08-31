@@ -48,6 +48,8 @@ jobs:
             YDB_ENDPOINT=${{ secrets.YDB_ENDPOINT }}
             MAX_SUPERADMIN=${{ secrets.MAX_SUPERADMIN }}
             MAX_TECHNO_INFO=${{ secrets.MAX_TECHNO_INFO }}
+            MAX_BOT_USERNAME=${{ secrets.MAX_BOT_USERNAME }}
+            TELEGRAM_BOT_USERNAME=${{ secrets.TELEGRAM_BOT_USERNAME }}
             LOG_GROUP_ID=${{ secrets.LOG_GROUP_ID }}
             VK_APP_ID=${{ secrets.VK_APP_ID }}
             VK_DOMAIN=${{ secrets.VK_DOMAIN }}
@@ -123,6 +125,8 @@ jobs:
 
           TELEGRAM_SUPERADMIN=${{ secrets.TELEGRAM_SUPERADMIN }}
           TELEGRAM_TECHNO_INFO=${{ secrets.TELEGRAM_TECHNO_INFO }}
+          TELEGRAM_BOT_USERNAME=${{ secrets.TELEGRAM_BOT_USERNAME }}
+          MAX_BOT_USERNAME=${{ secrets.MAX_BOT_USERNAME }}
           CHANNEL_PERVYE=${{ secrets.CHANNEL_PERVYE }}
 
           VK_APP_ID=${{ secrets.VK_APP_ID }}

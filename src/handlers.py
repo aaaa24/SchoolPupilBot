@@ -2,6 +2,7 @@ from telebot import types
 
 from constants import Phrase
 from messenger_context import get_messenger_from_kwargs, get_nice_name_of_messenger_from_kwargs, get_users_table
+from messengers import Messenger
 from utils import create_inline_kb, send_text, edit_level, try_delete_message
 
 
@@ -20,8 +21,13 @@ def cancel(m, user, bot, session, *args, **kwargs):
 def info(m, user, bot, session, *args, **kwargs):
     text = Phrase.BOT_INFO.format(messenger=get_nice_name_of_messenger_from_kwargs(kwargs))
 
+    messenger = Messenger(get_messenger_from_kwargs(kwargs))
+    other_bot_url = messenger.other.bot_url(f'from{messenger.nice_name}')
+
     inline_kb = types.InlineKeyboardMarkup()
     inline_kb.row(types.InlineKeyboardButton('💬 Обратная связь', callback_data='fback'))
+    if other_bot_url:
+        inline_kb.row(types.InlineKeyboardButton(f'Бот в {messenger.other.nice_name}', url=other_bot_url))
     inline_kb.row(types.InlineKeyboardButton('🏠 В меню', callback_data='menu'))
 
     send_text(bot, m, text, inline_kb)
