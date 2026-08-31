@@ -5,6 +5,7 @@ t0 = time()
 import contextvars
 import logging
 import os
+from html import escape
 
 from pythonjsonlogger import jsonlogger
 
@@ -112,6 +113,18 @@ driver.wait(fail_fast=True, timeout=5)
 logger.debug('Созданы bot и driver', extra={'time_since_launch': time() - t0, 'duration': time() - t1})
 
 
+def get_start_payload(m):
+    text = getattr(m, 'text', None)
+    if not isinstance(text, str):
+        return None
+
+    parts = text.split(maxsplit=1)
+    if not parts or parts[0].split('@')[0] != '/start' or len(parts) == 1:
+        return None
+
+    return parts[1].strip() or None
+
+
 def user_verif(m, session, bot_instance):
     t1 = time()
     logger.debug('Запущена функция user_verif', extra={'time_since_launch': t1 - t0})
@@ -133,16 +146,11 @@ def user_verif(m, session, bot_instance):
             settings=ydb.BaseRequestSettings().with_timeout(3).with_operation_timeout(2)
         )
         text = f'Новый пользователь\nID: <code>{user["id"]}</code>\nИмя: {user["first_name"]}' + \
-               (f'\nФамилия: {user["last_name"]}' if 'last_name' in user else '') + \
-               (f'\nНик: {"@" if user["username"] else ""}{user["username"]}' if 'username' in user else '')
-        from_ = None
-        if hasattr(m, 'text') and m.text.startswith('/start'):
-            if 'fromSchoolCoach' in m.text.split():
-                text += '\n\nПереход из бота «Школьный тренер»'
-                from_ = 'fromSchoolCoach'
-            if 'fromSchoolQR' in m.text.split():
-                text += '\n\nПереход с QR-кода в школе'
-                from_ = 'fromSchoolQR'
+               (f'\nФамилия: {user["last_name"]}' if user.get('last_name') else '') + \
+               (f'\nНик: @{user["username"]}' if user.get('username') else '')
+        from_ = get_start_payload(m)
+        if from_:
+            text += f'\n\n<i>{escape(from_)}</i>'
 
         if messenger is Messenger.TELEGRAM:
             user_info = bot.get_chat(user['id'])
