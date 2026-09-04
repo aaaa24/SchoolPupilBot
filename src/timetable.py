@@ -1,5 +1,5 @@
 from datetime import datetime, timedelta
-from re import match, search, sub
+from re import IGNORECASE, match, search, sub
 
 import ydb
 from telebot import types
@@ -129,9 +129,74 @@ def get_next_wday_btn(weekday, weekdays, data):
     ]
 
 
+def _all_division_parts():
+    for division in constants.divisions:
+        for part in division['parts']:
+            yield part
+
+
+def _find_subject(name):
+    foo = lambda s: sub(r'[\.\-" 0-9\(\)\\/\:]+', '', s.lower())
+    for s in constants.subjects:
+        if foo(name) == foo(s['name']) or foo(name) in s['var_names']:
+            return s['name']
+    return ''
+
+
+def _parse_lesson_part(line):
+    num_cabinet_search = search(r'\(?(\d+)\)?', line)
+    if num_cabinet_search:
+        num_cabinet = int(num_cabinet_search.group(1))
+        name_subj = line[:num_cabinet_search.span()[0]].strip()
+    else:
+        num_cabinet = 0
+        name_subj = line.strip()
+
+    if name_subj:
+        name_subj = _find_subject(name_subj)
+    return {'subject': name_subj.replace('"', '\\"'), 'number': num_cabinet}
+
+
+def _is_lesson_part_left(line):
+    return bool(_parse_lesson_part(line)['subject']) or not search(r'[^\W\d_]', line)
+
+
+def _extract_division(line):
+    for part in _all_division_parts():
+        for pattern in (rf'\(\s*(?:{part["pattern"]}|{part["short"]})\s*\)',
+                        rf'^\s*(?:{part["pattern"]}|{part["short"]})(?!\w)\s*[:\-–—]'):
+            found = search(pattern, line, flags=IGNORECASE)
+            if found:
+                return part['group'], f'{line[:found.start()]} {line[found.end():]}'
+
+    for part in _all_division_parts():
+        found = match(rf'\s*(?:{part["pattern"]})(?!\w)', line, flags=IGNORECASE)
+        if found and _is_lesson_part_left(line[found.end():]):
+            return part['group'], line[found.end():]
+
+        found = search(rf'(?<!\w)(?:{part["pattern"]})\s*$', line, flags=IGNORECASE)
+        if found and _parse_lesson_part(line[:found.start()])['subject']:
+            return part['group'], line[:found.start()]
+
+    return None, line
+
+
+def _get_division(groups):
+    if groups.count(None) == len(groups):
+        return 0, False
+    if None in groups:
+        return None, False
+
+    divisions = {constants.get_division_part(g)[0]['num'] for g in groups}
+    indexes = [constants.get_division_part(g)[2] for g in groups]
+    if len(divisions) != 1 or sorted(indexes) != [0, 1]:
+        return None, False
+    return divisions.pop(), indexes == [1, 0]
+
+
 def _exst_info(old_line, num_line):
     # Добывает информацию об уроке
-    seq_number = match(r'(\d{1})[\. \)]+', old_line)
+    seq_number = match(r'(\d{1})[\. \)]+(?! *гр)', old_line)
     if not seq_number is None:
         old_line = old_line[seq_number.span()[1]:]
         seq_number = int(seq_number.group(1))
@@ -150,27 +215,22 @@ def _exst_info(old_line, num_line):
         lines = [old_line]
 
     lessons = []
+    groups = []
     for line in lines:
-        lesson = {}
-        num_cabinet_search = search(r'\(?(\d+)\)?', line)
-        if num_cabinet_search:
-            num_cabinet = int(num_cabinet_search.group(1))
-            name_subj = line[:num_cabinet_search.span()[0]].strip()
-        else:
-            num_cabinet = 0
-            name_subj = line.strip()
+        group, line = _extract_division(line)
+        groups.append(group)
+        lessons.append(_parse_lesson_part(line))
 
-        if name_subj:
-            foo = lambda s: sub(r'[\.\-" 0-9\(\)\\/\:]+', '', s.lower())
-            for s in constants.subjects:
-                if foo(name_subj) == foo(s['name']) or foo(name_subj) in s['var_names']:
-                    name_subj = s['name']
-                    break
-            else:
-                name_subj = ''
-        lesson['subject'] = name_subj.replace('"', '\\"')
-        lesson['number'] = num_cabinet
-        lessons.append(lesson)
+    if len(lessons) == 1:
+        if not groups[0] is None:
+            return 4
+        division = 0
+    else:
+        division, swapped = _get_division(groups)
+        if division is None:
+            return 3
+        if swapped:
+            lessons.reverse()
 
     lesson = {'seq_number': seq_number, 'is_null': False}
     if len(lessons) == 1:
@@ -209,6 +269,11 @@ def _exst_info(old_line, num_line):
                 lesson['number_cabinet'], lesson['number_cabinet2'] = lesson['number_cabinet2'], lesson[
                     'number_cabinet']
             lesson['number_cabinet2'] = 0
+
+    if lesson['two_stream']:
+        lesson['division'] = division
+    else:
+        lesson['division'] = 0
     return lesson
 
 
@@ -239,6 +304,14 @@ def writing(m, user, bot, session, *args, **kwargs):
         elif lesson == 2:
             text += f'Не удалось распознать название урока "{line}".\n'
             error = True
+        elif lesson == 3:
+            text += f'Не удалось распознать, на какие группы разделён урок "{line}". ' \
+                    f'{Phrase.DIVISIONS_HINT}\n'
+            error = True
+        elif lesson == 4:
+            text += f'У урока "{line}" указана группа, но записана только одна её часть. ' \
+                    f'Разделённый урок записывается через косую черту.\n'
+            error = True
         elif lesson['is_null']:
             null_lessons.append(lesson['seq_number'])
             continue
@@ -259,9 +332,9 @@ def writing(m, user, bot, session, *args, **kwargs):
         idd = f'{parallel}{"АБВГ".index(char) + 1}{weekday_num}'
         if lessons:
             values_text = ', '.join([
-                f'({idd}{lesson["seq_number"]}, {parallel}, "{char}", {weekday_num}, {lesson["seq_number"]}, "{lesson["subject"]}", {lesson["number_cabinet"]}, {lesson["two_stream"]}, "{lesson["subject2"]}", {lesson["number_cabinet2"]})'
+                f'({idd}{lesson["seq_number"]}, {parallel}, "{char}", {weekday_num}, {lesson["seq_number"]}, "{lesson["subject"]}", {lesson["number_cabinet"]}, {lesson["two_stream"]}, "{lesson["subject2"]}", {lesson["number_cabinet2"]}, CAST({lesson["division"]} AS Uint8))'
                 for lesson in lessons])
-            request_text += f'UPSERT INTO lessons (id, number_class, char_class, weekday, seq_number, subject, number_cabinet, two_stream, subject2, number_cabinet2) VALUES ' + values_text + ';'
+            request_text += f'UPSERT INTO lessons (id, number_class, char_class, weekday, seq_number, subject, number_cabinet, two_stream, subject2, number_cabinet2, division) VALUES ' + values_text + ';'
         if null_lessons:
             null_lessons = ', '.join([idd + str(null) for null in null_lessons])
             request_text += f'DELETE FROM lessons WHERE id in ({null_lessons});'
@@ -377,6 +450,33 @@ def classes(m, user, bot, session, *args, **kwargs):
         edit_level(m, 'menu', session)
 
 
+def _get_part_text(subject, number_cabinet, abb_name=''):
+    text = ''
+    if abb_name:
+        text += f'{abb_name}: '
+    text += subject
+    if number_cabinet != 0:
+        text += f' ({number_cabinet})'
+    return text
+
+
+def _get_lesson_text(lesson):
+    if not lesson['two_stream']:
+        return _get_part_text(lesson['subject'], lesson['number_cabinet'])
+
+    division = constants.get_division(lesson['division'])
+    if division is None:
+        if lesson['subject'] == lesson['subject2']:
+            if lesson['number_cabinet'] != 0 and lesson['number_cabinet2'] != 0:
+                return f'{lesson["subject"]} ({lesson["number_cabinet"]} / {lesson["number_cabinet2"]})'
+            return _get_part_text(lesson['subject'], lesson['number_cabinet'] or lesson['number_cabinet2'])
+        return f'{_get_part_text(lesson["subject"], lesson["number_cabinet"])} / ' \
+               f'{_get_part_text(lesson["subject2"], lesson["number_cabinet2"])}'
+
+    return f'{_get_part_text(lesson["subject"], lesson["number_cabinet"], division["parts"][0]["abb_name"])} / ' \
+           f'{_get_part_text(lesson["subject2"], lesson["number_cabinet2"], division["parts"][1]["abb_name"])}'
+
+
 def weekday(m, user, bot, session, *args, **kwargs):
     print(m.data)
 
@@ -408,27 +508,8 @@ def weekday(m, user, bot, session, *args, **kwargs):
     else:
         subjects = result[0].rows
         text = f'{parallel}{char} класс, {full_weekday}:\n'
-        for i in range(len(subjects)):
-            if subjects[i]['two_stream']:
-                if subjects[i]['subject'] == subjects[i]['subject2']:
-                    text += f'\n{subjects[i]["seq_number"]}. {subjects[i]["subject"]}'
-                    if subjects[i]["number_cabinet"] != 0 and subjects[i]["number_cabinet2"]:
-                        text += f' ({subjects[i]["number_cabinet"]} / {subjects[i]["number_cabinet2"]})'
-                    elif subjects[i]["number_cabinet"] != 0:
-                        text += f' ({subjects[i]["number_cabinet"]})'
-                    elif subjects[i]["number_cabinet2"] != 0:
-                        text += f' ({subjects[i]["number_cabinet2"]})'
-                else:
-                    text += f'\n{subjects[i]["seq_number"]}. {subjects[i]["subject"]}'
-                    if subjects[i]["number_cabinet"] != 0:
-                        text += f' ({subjects[i]["number_cabinet"]})'
-                    text += f' / {subjects[i]["subject2"]}'
-                    if subjects[i]["number_cabinet2"] != 0:
-                        text += f' ({subjects[i]["number_cabinet2"]})'
-            else:
-                text += f'\n{subjects[i]["seq_number"]}. {subjects[i]["subject"]}'
-                if subjects[i]["number_cabinet"] != 0:
-                    text += f' ({subjects[i]["number_cabinet"]})'
+        for lesson in subjects:
+            text += f'\n{lesson["seq_number"]}. {_get_lesson_text(lesson)}'
 
     inline_kb = types.InlineKeyboardMarkup()
     if user['admin']:

@@ -1,6 +1,7 @@
 import ydb
 from telebot import types
 
+import constants
 from constants import Phrase
 from utils import send_text, edit_level
 
@@ -28,15 +29,9 @@ def class_teachers(m, user, bot, session, *args, **kwargs):
             text_subjs = []
             for subj in subjs:
                 text_subjs.append(subj['les.subject'][0].lower() + subj['les.subject'][1:])
-                match subj['les.group']:
-                    case 1:
-                        text_subjs[-1] += ' (1 гр.)'
-                    case 2:
-                        text_subjs[-1] += ' (2 гр.)'
-                    case 3:
-                        text_subjs[-1] += ' (м)'
-                    case 4:
-                        text_subjs[-1] += ' (д)'
+                abb_name = constants.get_division_abb(subj['les.group'])
+                if abb_name:
+                    text_subjs[-1] += f' ({abb_name})'
             line += ', '.join(sorted(text_subjs))
             list_teachers.append(line)
         list_teachers.sort()

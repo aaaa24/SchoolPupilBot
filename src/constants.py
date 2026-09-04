@@ -1,6 +1,10 @@
+import re
+
+
 class Phrase:
     START = 'Привет. Это бот «Школьный помощник».\n\nОн создан одним из учеников нашей школы для удобства получения актуальной школьной информации. Вы можете узнать расписание классов, временные изменения в расписании, информацию о классах и учителях, а также имеете возможность одними из первых читать новости школы со страницы во ВКонтакте, которые будут приходить к Вам в {messenger}.\n\nУспехов в учёбе и приятного пользования ботом!'
-    EDIT_TT = 'Для редактирования расписания {p}{ch} класса на {acc} введите названия предметов по порядку, каждый на отдельной строке. После названия предмета указывайте, по возможности, номер кабинета'
+    DIVISIONS_HINT = 'Части разделённого урока записываются через косую черту, а группы помечаются до или после предмета: 1 гр. и 2 гр., м и д, ЕН и СЭ'
+    EDIT_TT = 'Для редактирования расписания {p}{ch} класса на {acc} введите названия предметов по порядку, каждый на отдельной строке. После названия предмета указывайте, по возможности, номер кабинета.\n\nЕсли урок разделён на группы, запишите обе части через косую черту, например: «ЕН: Биология 31 / СЭ: Обществознание 14», «1 гр.: Английский 12 / 2 гр.: Английский 13», «Физкультура (м) / Физкультура 30 (д)»'
     ADD_TEA = 'Чтобы добавить учителя, введите его фамилию, имя и отчество на первой строке и основные предметы, которые он ведёт, должности, которые занимает, и номер его кабинета на остальных строках'
     MENU = 'Вы находитесь в главном меню'
     CHANGES_TT_SOON = 'Изменения в расписании на {fewd} ({weekd}, {day} {dec})'
@@ -189,6 +193,79 @@ subjects = [
     {'name': 'Электив "Решение комбинированных и нестандартных задач по химии"',
      'var_names': ['элективхимия', 'задачипохимии', 'задачихимия', 'элективзадачипохимии']},
 ]
+
+divisions = [
+    {
+        'num': 1,
+        'name': 'группы',
+        'parts': [
+            {'group': 1, 'abb_name': '1 гр.',
+             'pattern': r'1\s*(?:гр\.?|груп\w*)|(?:гр\.?|груп\w*)\s*1', 'short': r'1'},
+            {'group': 2, 'abb_name': '2 гр.',
+             'pattern': r'2\s*(?:гр\.?|груп\w*)|(?:гр\.?|груп\w*)\s*2', 'short': r'2'}
+        ]
+    },
+    {
+        'num': 2,
+        'name': 'мальчики и девочки',
+        'parts': [
+            {'group': 3, 'abb_name': 'м', 'pattern': r'мал\w*|юнош\w*|юн\.', 'short': r'м|ю'},
+            {'group': 4, 'abb_name': 'д', 'pattern': r'дев\w*', 'short': r'д'}
+        ]
+    },
+    {
+        'num': 3,
+        'name': 'профили',
+        'parts': [
+            {'group': 5, 'abb_name': 'ЕН',
+             'pattern': r'ен|ест|естеств\w*|естественно[ -]?научн\w*|естнауч\w*', 'short': r'е'},
+            {'group': 6, 'abb_name': 'СЭ',
+             'pattern': r'сэ|соц|социальн\w*|социально[ -]?эконом\w*|соцэконом\w*', 'short': r'с'}
+        ]
+    }
+]
+
+
+def get_division(num):
+    for division in divisions:
+        if division['num'] == num:
+            return division
+    return None
+
+
+def get_division_part(group):
+    for division in divisions:
+        for index, part in enumerate(division['parts']):
+            if part['group'] == group:
+                return division, part, index
+    return None, None, None
+
+
+def get_divisions_pattern(with_short=True):
+    patterns = []
+    for division in divisions:
+        for part in division['parts']:
+            if with_short:
+                patterns.append(f'{part["pattern"]}|{part["short"]}')
+            else:
+                patterns.append(part['pattern'])
+    return '|'.join(f'(?:{p})' for p in patterns)
+
+
+def find_division_group(text):
+    for division in divisions:
+        for part in division['parts']:
+            if re.fullmatch(f'(?:{part["pattern"]}|{part["short"]})', text.strip(), flags=re.IGNORECASE):
+                return part['group']
+    return 0
+
+
+def get_division_abb(group):
+    part = get_division_part(group)[1]
+    if part is None:
+        return ''
+    return part['abb_name']
+
 
 dict_re = {
     'p': '(1?[0-9]{1})',

@@ -169,8 +169,8 @@ def show_timetable(m, user, bot, session, *args, **kwargs):
                    'JOIN teachers_lessons AS tl ' \
                    'ON les.number_class = tl.number_class AND les.char_class = tl.char_class ' \
                    f'WHERE weekday = {n_weekday} AND id_teacher = {teacher_id} ' \
-                   'AND (tl.group IN (0, 1, 3) AND tl.subject = les.subject ' \
-                   'OR tl.group IN (0, 2, 4) AND tl.subject = les.subject2 ' \
+                   'AND (tl.group IN (0, 1, 3, 5) AND tl.subject = les.subject ' \
+                   'OR tl.group IN (0, 2, 4, 6) AND tl.subject = les.subject2 ' \
                    'OR tl.subject = les.subject AND les.subject2 = ""); ' \
                    'SELECT last_name, first_name, patronymic FROM teachers ' \
                    f'WHERE id = {teacher_id}'
@@ -195,10 +195,10 @@ def show_timetable(m, user, bot, session, *args, **kwargs):
                 'seq_number': lesson['seq_number'],
                 'group': lesson['group']
             }
-            if lesson['group'] in (0, 1, 3) or not lesson['two_stream']:
+            if lesson['group'] in (0, 1, 3, 5) or not lesson['two_stream']:
                 filtered_lesson['subject'] = lesson['subject']
                 filtered_lesson['number_cabinet'] = lesson['number_cabinet']
-            elif lesson['group'] in (2, 4):
+            elif lesson['group'] in (2, 4, 6):
                 filtered_lesson['subject'] = lesson['subject2']
                 filtered_lesson['number_cabinet'] = lesson['number_cabinet2']
             filtered_lesson['subject'] = filtered_lesson['subject'][0].lower() + filtered_lesson['subject'][1:]
@@ -218,12 +218,9 @@ def show_timetable(m, user, bot, session, *args, **kwargs):
         text += ':\n'
         for lesson in filtered_lessons:
             text += f'\n{lesson["seq_number"]}. {lesson["number_class"]}{lesson["char_class"]}'
-            if lesson['group'] in (1, 2):
-                text += f' ({lesson["group"]} гр.)'
-            elif lesson['group'] == 3:
-                text += ' (м)'
-            elif lesson['group'] == 4:
-                text += ' (д)'
+            abb_name = constants.get_division_abb(lesson['group'])
+            if abb_name:
+                text += f' ({abb_name})'
             if not is_one_cabinet and lesson['number_cabinet'] != 0:
                 text += f', {lesson["number_cabinet"]} каб.'
             if not is_one_subject:
@@ -253,8 +250,8 @@ def choose_weekday(m, user, bot, session, *args, **kwargs):
                    'JOIN teachers_lessons AS tl ' \
                    'ON les.number_class = tl.number_class AND les.char_class = tl.char_class ' \
                    f'WHERE id_teacher = {teacher_id} ' \
-                   'AND (tl.group IN (0, 1, 3) AND tl.subject = les.subject ' \
-                   'OR tl.group IN (2, 4) AND tl.subject = les.subject2);'
+                   'AND (tl.group IN (0, 1, 3, 5) AND tl.subject = les.subject ' \
+                   'OR tl.group IN (2, 4, 6) AND tl.subject = les.subject2);'
     if teacher is None and m.data.split('$')[0].split('_')[0] == 'tttea':
         text_request += 'SELECT last_name, first_name, patronymic FROM teachers ' \
                         f'WHERE id = {teacher_id}'
@@ -454,13 +451,9 @@ def create_info_about_teachers_subjects(subjects_and_classes, set_of_subjects):
         if not subject in distribution_by_subject:
             distribution_by_subject[subject] = []
         str_class = f'{number}{char}'
-        if group:
-            if int(group) in (1, 2):
-                str_class += f' ({group} гр.)'
-            elif int(group) == 3:
-                str_class += f' (м)'
-            elif int(group) == 4:
-                str_class += f' (д)'
+        abb_name = constants.get_division_abb(int(group or 0))
+        if abb_name:
+            str_class += f' ({abb_name})'
         distribution_by_subject[subject].append(str_class)
 
     lines = [f'{subject}' for subject in set_of_subjects - set(distribution_by_subject.keys())]
@@ -486,14 +479,13 @@ def find_subjects_and_classes_in_line(line, pattern_subj, pattern_cl):
     found_classes = re.finditer(pattern_cl, line)
     result_classes = set()
     for cl in found_classes:
-        m = list(filter(lambda g: not g is None, cl.groups()))
-        if len(m) == 2:
-            result_classes.add((m[0], m[1].upper(), 0))
+        number, char, in_brackets, without_brackets = cl.groups()
+        group = in_brackets or without_brackets
+        if group:
+            group = constants.find_division_group(group)
         else:
-            group = m[2]
-            if group.lower() in 'мюд':
-                group = {'м': '3', 'ю': '3', 'д': '4'}[group.lower()]
-            result_classes.add((m[0], m[1].upper(), group))
+            group = 0
+        result_classes.add((number, char.upper(), group))
 
     return result_subjects, result_classes
 
@@ -507,7 +499,8 @@ def find_subjects_and_classes(text):
     pattern_subj = re.compile(str_subjects, flags=re.IGNORECASE)
 
     pattern_cl = re.compile(
-        r'(?<!\d)([1-9]{1}|1[01]) *([а-г])(?!\w) *(?:\(([1-4мюд]) *(?:гр\.?|группа)?\)|\(?(?:(м)ал|(ю)нош|(д)ев)\)?|([1-4мюд]) *(?:гр(?:\.|(?!\w))|группа(?!\w)))?',
+        r'(?<!\d)([1-9]{1}|1[01]) *([а-г])(?!\w) *'
+        rf'(?:\( *({constants.get_divisions_pattern()}) *\)|({constants.get_divisions_pattern(False)})(?!\w))?',
         flags=re.IGNORECASE)
 
     subjects_and_classes, set_of_subjects, set_of_only_subjects = set(), set(), set()
