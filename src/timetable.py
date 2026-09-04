@@ -131,8 +131,7 @@ def get_next_wday_btn(weekday, weekdays, data):
 
 def _all_division_parts():
     for division in constants.divisions:
-        for part in division['parts']:
-            yield part
+        yield from division['parts']
 
 
 def _find_subject(name):
@@ -184,12 +183,18 @@ def _extract_division(line):
 def _get_division(groups):
     if groups.count(None) == len(groups):
         return 0, False
-    if None in groups:
+
+    found = [(number, constants.get_division_part(g)) for number, g in enumerate(groups) if not g is None]
+    divisions = {division['num'] for _, (division, _, _) in found}
+    if len(divisions) != 1:
         return None, False
 
-    divisions = {constants.get_division_part(g)[0]['num'] for g in groups}
-    indexes = [constants.get_division_part(g)[2] for g in groups]
-    if len(divisions) != 1 or sorted(indexes) != [0, 1]:
+    if len(found) == 1:
+        number, (division, _, index) = found[0]
+        return division['num'], number != index
+
+    indexes = [index for _, (_, _, index) in found]
+    if sorted(indexes) != [0, 1]:
         return None, False
     return divisions.pop(), indexes == [1, 0]
 

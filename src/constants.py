@@ -210,8 +210,8 @@ divisions = [
         'num': 2,
         'name': 'мальчики и девочки',
         'parts': [
-            {'group': 3, 'abb_name': 'м', 'pattern': r'мал\w*|юнош\w*|юн\.', 'short': r'м|ю'},
-            {'group': 4, 'abb_name': 'д', 'pattern': r'дев\w*', 'short': r'д'}
+            {'group': 3, 'abb_name': 'м', 'pattern': r'мал\w*|юнош\w*|юн\.|м|ю', 'short': r'м|ю'},
+            {'group': 4, 'abb_name': 'д', 'pattern': r'дев\w*|д', 'short': r'д'}
         ]
     },
     {
