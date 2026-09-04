@@ -470,7 +470,7 @@ def _get_lesson_text(lesson):
         return _get_part_text(lesson['subject'], lesson['number_cabinet'])
 
     division = constants.get_division(lesson['division'])
-    if division is None:
+    if division is None or not division['signed']:
         if lesson['subject'] == lesson['subject2']:
             if lesson['number_cabinet'] != 0 and lesson['number_cabinet2'] != 0:
                 return f'{lesson["subject"]} ({lesson["number_cabinet"]} / {lesson["number_cabinet2"]})'

@@ -198,6 +198,7 @@ subjects = [
 divisions = [
     {
         'num': 1,
+        'signed': False,
         'name': 'группы',
         'parts': [
             {'group': 1, 'abb_name': '1 гр.',
@@ -208,6 +209,7 @@ divisions = [
     },
     {
         'num': 2,
+        'signed': True,
         'name': 'мальчики и девочки',
         'parts': [
             {'group': 3, 'abb_name': 'м', 'pattern': r'мал\w*|юнош\w*|юн\.|м|ю', 'short': r'м|ю'},
@@ -216,6 +218,7 @@ divisions = [
     },
     {
         'num': 3,
+        'signed': True,
         'name': 'профили',
         'parts': [
             {'group': 5, 'abb_name': 'ЕН',
