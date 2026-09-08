@@ -26,12 +26,17 @@ def class_teachers(m, user, bot, session, *args, **kwargs):
         for teacher_id in set(t['t.id'] for t in request[0].rows):
             subjs = [t for t in request[0].rows if t['t.id'] == teacher_id]
             line = f'{subjs[0]["t.last_name"]} {subjs[0]["t.first_name"]} {subjs[0]["t.patronymic"]} – '
-            text_subjs = []
+            groups_by_subject = {}
             for subj in subjs:
-                text_subjs.append(subj['les.subject'][0].lower() + subj['les.subject'][1:])
-                abb_name = constants.get_division_abb(subj['les.group'])
-                if abb_name:
-                    text_subjs[-1] += f' ({abb_name})'
+                groups_by_subject.setdefault(subj['les.subject'], set()).add(subj['les.group'])
+            text_subjs = []
+            for subject, groups in groups_by_subject.items():
+                for group in constants.merge_division_groups(groups):
+                    text_subj = subject[0].lower() + subject[1:]
+                    abb_name = constants.get_division_abb(group)
+                    if abb_name:
+                        text_subj += f' ({abb_name})'
+                    text_subjs.append(text_subj)
             line += ', '.join(sorted(text_subjs))
             list_teachers.append(line)
         list_teachers.sort()

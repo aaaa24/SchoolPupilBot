@@ -446,15 +446,20 @@ def show_subjects_and_classes(m, user, bot, session, *args, **kwargs):
 
 
 def create_info_about_teachers_subjects(subjects_and_classes, set_of_subjects):
+    groups_by_class = {}
+    for subject, number, char, group in subjects_and_classes:
+        groups_by_class.setdefault((subject, number, char), set()).add(int(group or 0))
+
     distribution_by_subject = {}
-    for subject, number, char, group in sorted(subjects_and_classes, key=lambda x: (int(x[1]), x[2], int(x[3]))):
+    for subject, number, char in sorted(groups_by_class, key=lambda x: (int(x[1]), x[2])):
         if not subject in distribution_by_subject:
             distribution_by_subject[subject] = []
-        str_class = f'{number}{char}'
-        abb_name = constants.get_division_abb(int(group or 0))
-        if abb_name:
-            str_class += f' ({abb_name})'
-        distribution_by_subject[subject].append(str_class)
+        for group in constants.merge_division_groups(groups_by_class[(subject, number, char)]):
+            str_class = f'{number}{char}'
+            abb_name = constants.get_division_abb(group)
+            if abb_name:
+                str_class += f' ({abb_name})'
+            distribution_by_subject[subject].append(str_class)
 
     lines = [f'{subject}' for subject in set_of_subjects - set(distribution_by_subject.keys())]
     text = ''

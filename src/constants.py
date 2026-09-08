@@ -271,6 +271,16 @@ def get_division_abb(group):
     return part['abb_name']
 
 
+def merge_division_groups(groups):
+    groups = set(groups)
+    for division in divisions:
+        parts = {part['group'] for part in division['parts']}
+        if parts <= groups:
+            groups -= parts
+            groups.add(0)
+    return sorted(groups)
+
+
 dict_re = {
     'p': '(1?[0-9]{1})',
     'ch': '([А-Г]{1})',
