@@ -21,16 +21,6 @@ def media_column(messenger):
     }[Messenger(messenger)]
 
 
-def photos_to_add(m, messenger):
-    # В Telegram m.photo — размеры одной фотографии, нужен самый большой,
-    # а в MAX одно сообщение содержит все отправленные фотографии
-    if not m.photo:
-        return []
-    if Messenger(messenger) is Messenger.MAX:
-        return m.photo
-    return [m.photo[-1]]
-
-
 class PhotoAlbum:
     # Упорядоченный набор фотографий одного экрана: порядок задаёт seq_number (1..N без пропусков),
     # идентификаторы мессенджеров лежат рядом, а резервная копия в S3 нужна,

@@ -3,8 +3,14 @@ import time
 import constants
 from constants import Phrase
 from messenger_context import get_messenger_from_kwargs
-from messengers import Messenger, ScreenState, force_new_screen, get_client
-from photo_album import ChangesAlbum, TimetablePhotoAlbum, photos_to_add
+from messengers import (
+    Messenger,
+    ScreenState,
+    force_new_screen,
+    get_client,
+    incoming_photos,
+)
+from photo_album import ChangesAlbum, TimetablePhotoAlbum
 from utils import create_inline_kb, edit_level, suffixes, try_delete_message
 
 NO_SCOPE = '-'
@@ -249,7 +255,7 @@ def accept_photos(m, user, bot, session, *args, **kwargs):
     section = sections[code]
     messenger = get_messenger_from_kwargs(kwargs)
 
-    photos = photos_to_add(m, messenger)
+    photos = incoming_photos(m, messenger)
     if not photos:
         list_inline_btn = [[('← Назад', callback_data(section, scope, 'ed', 1)), ('🏠 В меню', 'menu')]]
         bot.send_message(m.chat.id, Phrase.ALBUM_NEED_PHOTO, reply_markup=create_inline_kb(list_inline_btn))

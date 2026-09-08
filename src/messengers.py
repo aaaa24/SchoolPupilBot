@@ -135,6 +135,16 @@ def enabled_messengers() -> list[Messenger]:
     return [Messenger(name.strip()) for name in value.split(',') if name.strip()]
 
 
+def incoming_photos(m, messenger):
+    # В Telegram m.photo — размеры одной фотографии, нужен самый большой,
+    # а в MAX одно сообщение содержит все отправленные фотографии
+    if not m.photo:
+        return []
+    if Messenger(messenger) is Messenger.MAX:
+        return m.photo
+    return [m.photo[-1]]
+
+
 class BaseMessengerClient(ABC):
     platform: Messenger
 

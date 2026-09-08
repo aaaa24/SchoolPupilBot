@@ -5,7 +5,7 @@ from telebot import types
 
 from constants import Phrase
 from messenger_context import get_messenger_from_kwargs, get_users_table
-from messengers import MediaItem, Messenger, get_client
+from messengers import MediaItem, Messenger, get_client, incoming_photos
 from utils import (
     create_inline_kb,
     edit_level,
@@ -22,9 +22,9 @@ BTN_TEXT_CHARS = 'АБВГДЕЁЖЗИЙКЛМНОПРСТУФХЦЧШЩЪЫЬЭ
 
 def _draft_content(bot, message):
     text = message.text if message.text else message.caption
-    media = [MediaItem(id=photo.file_id) for photo in (message.photo or [])]
-
     client = get_client(bot)
+    media = [MediaItem(id=photo.file_id) for photo in incoming_photos(message, client.platform)]
+
     if client.platform is Messenger.MAX and not media and getattr(message, 'message_id', None):
         body = client.get_message(message.message_id).get('body') or {}
         text = body.get('text') or text
