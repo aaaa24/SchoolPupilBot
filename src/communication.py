@@ -6,7 +6,18 @@ from telebot import types
 from constants import Phrase
 from messenger_context import get_messenger_from_kwargs, get_users_table
 from messengers import MediaItem, Messenger, get_client
-from utils import edit_level, find_callback_data, pack_id, send_text, unpack_id
+from utils import (
+    create_inline_kb,
+    edit_level,
+    find_callback_data,
+    pack_id,
+    send_text,
+    unpack_id,
+)
+
+LINK_PREFIX = 'lnk'
+
+BTN_TEXT_CHARS = 'АБВГДЕЁЖЗИЙКЛМНОПРСТУФХЦЧШЩЪЫЬЭЮЯABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890 '
 
 
 def _draft_content(bot, message):
@@ -35,6 +46,28 @@ def _answer_content(bot, m, answer_id):
 
     body = get_client(bot).get_message(unpack_id(answer_id)).get('body') or {}
     return body.get('text') or '', body.get('mid')
+
+
+def _clean_btn_text(text):
+    return ''.join(filter(lambda c: c.upper() in BTN_TEXT_CHARS, text)).strip()
+
+
+def _as_url(value):
+    value = value.strip()
+    if re.match(r'https?://\S+$', value, re.IGNORECASE):
+        return value
+    if re.match(r'(www\.|t\.me/|max\.ru/)\S+$', value, re.IGNORECASE):
+        return 'https://' + value
+    return None
+
+
+def _parse_links(text):
+    return re.findall(r'^\d+\. (.+) — (\S+)$', text or '', re.MULTILINE)
+
+
+def _screen_text_with_links(links):
+    lines = '\n'.join(f'{number}. {name} — {url}' for number, (name, url) in enumerate(links, 1))
+    return Phrase.ASK_BTNS + Phrase.ATTACHED_LINKS.format(text=lines)
 
 
 def _has_hide_button(kwargs):
@@ -183,27 +216,39 @@ def reask_btns_to_users(m, user, bot, session, *args, **kwargs):
     ask_btns(m, user, bot, session, *args, callback_data=callback_data, back=back, **kwargs)
 
 
-def get_attachable_buttons(message):
-    from constants import attachable_buttons
+def get_attachable_buttons(message, messenger):
+    from constants import attachable_buttons, get_attachable_link
 
     btns = []
     result_btns = []
     keyboard = message.reply_markup.keyboard
     for row in keyboard:
         for btn in row:
-            if 'chbtn' in btn.callback_data and btn.callback_data.split('_')[1] != '0':
+            if btn.callback_data and 'chbtn' in btn.callback_data and btn.callback_data.split('_')[1] != '0':
                 btns.append((btn.text, btn.callback_data))
 
     btns.sort(key=lambda b: int(b[1].split('_')[1]))
+    links = _parse_links(message.text)
 
     for btn in btns:
         text_btn = btn[0][btn[0].index(' ') + 1:]
-        callback_data = '_'.join(btn[1].split('_')[2:]) + '$new'
+        data = '_'.join(btn[1].split('_')[2:])
+
+        if data.startswith(f'{LINK_PREFIX}_'):
+            key = data[len(LINK_PREFIX) + 1:]
+            if key.isdigit():
+                link = links[int(key) - 1] if int(key) <= len(links) else None
+            else:
+                link = get_attachable_link(key, messenger)
+            if link:
+                result_btns.append((link[0], link[1], 'url'))
+            continue
+
         for attachable_button in attachable_buttons:
             if text_btn in attachable_button[0]:
                 text_btn = attachable_button[0]
                 break
-        result_btns.append((text_btn, callback_data))
+        result_btns.append((text_btn, data + '$new'))
     return result_btns
 
 
@@ -211,7 +256,7 @@ def confirmation_message_to_users(m, user, bot, session, *args, **kwargs):
     # Подтверждение отправки рассылки пользователям
     message_id = m.data.split('$')[0].split('_')[1]
 
-    btns = get_attachable_buttons(m.message)
+    btns = get_attachable_buttons(m.message, get_messenger_from_kwargs(kwargs))
 
     text = Phrase.CONFIRMATION_MESSAGE_TO_USERS.format(text='')
 
@@ -227,8 +272,7 @@ def confirmation_message_to_users(m, user, bot, session, *args, **kwargs):
         ('Изменить сообщение', 'wusers$sdel'), ('Изменить кнопки', f'rwusers_{message_id}$sdel'),
         ('🏠 В меню', 'menu$sdel')
     ]
-    inline_buttons = [types.InlineKeyboardButton(t[0], callback_data=t[1]) for t in list_inline_btn]
-    inline_kb = types.InlineKeyboardMarkup(row_width=1).add(*inline_buttons)
+    inline_kb = create_inline_kb(list_inline_btn, row_width=1)
 
     send_text(bot, m, text, inline_kb, reply_to_message_id=unpack_id(message_id), parse_mode='HTML')
 
@@ -239,28 +283,43 @@ def add_button(m, user, bot, session, *args, **kwargs):
         text = Phrase.NO_ADD_BTN
         inline_kb = None
     else:
-        text_btn = m.text.split('\n')[0]
-        callback_data = m.text.split('\n')[1]
+        screen = m.reply_to_message
+        text_btn = split_text[0].strip()
+        value = split_text[1].strip()
+        url = _as_url(value)
 
-        inline_buttons = [b[0] for b in m.reply_to_message.reply_markup.keyboard[:-2]]
-        inline_buttons.append(types.InlineKeyboardButton('❌ ' + text_btn, callback_data='chbtn_0_' + callback_data))
-        inline_buttons.append(m.reply_to_message.reply_markup.keyboard[-2][0])
+        if url:
+            links = _parse_links(screen.text)
+            links.append((text_btn, url))
+            callback_data = f'chbtn_0_{LINK_PREFIX}_{len(links)}'
+            screen_text = _screen_text_with_links(links)
+        else:
+            callback_data = 'chbtn_0_' + value
+            screen_text = None
+
+        inline_buttons = [b[0] for b in screen.reply_markup.keyboard[:-2]]
+        inline_buttons.append(types.InlineKeyboardButton('❌ ' + text_btn, callback_data=callback_data))
+        inline_buttons.append(screen.reply_markup.keyboard[-2][0])
         inline_kb = types.InlineKeyboardMarkup(row_width=1).add(*inline_buttons)
-        inline_buttons = m.reply_to_message.reply_markup.keyboard[-1]
-        inline_kb.row(*inline_buttons)
+        inline_kb.row(*screen.reply_markup.keyboard[-1])
 
-        bot.edit_message_reply_markup(chat_id=m.reply_to_message.chat.id, message_id=m.reply_to_message.message_id,
-                                      reply_markup=inline_kb)
+        if screen_text is None:
+            bot.edit_message_reply_markup(chat_id=screen.chat.id, message_id=screen.message_id,
+                                          reply_markup=inline_kb)
+            text = Phrase.YES_ADD_BTN.format(text=f'<i>«{text_btn}»</i> с командой <i>{value}</i>')
+            list_inline_btn = [(text_btn, value + '$new')]
+        else:
+            bot.edit_message_text(screen_text, screen.chat.id, screen.message_id, reply_markup=inline_kb,
+                                  disable_web_page_preview=True)
+            text = Phrase.YES_ADD_BTN.format(text=f'<i>«{text_btn}»</i> со ссылкой <i>{url}</i>')
+            list_inline_btn = [(text_btn, url, 'url')]
 
-        text = Phrase.YES_ADD_BTN.format(text=f'<i>«{text_btn}»</i> с командой <i>{callback_data}</i>')
-
-        list_inline_btn = [(text_btn, callback_data + '$new')]
         if _has_hide_button(kwargs):
             list_inline_btn.append(('❌ Скрыть сообщение', f'cncl$del{m.message_id}'))
-        inline_buttons = [types.InlineKeyboardButton(t[0], callback_data=t[1]) for t in list_inline_btn]
-        inline_kb = types.InlineKeyboardMarkup(row_width=1).add(*inline_buttons)
+        inline_kb = create_inline_kb(list_inline_btn, row_width=1)
 
-    send_text(bot, m, text, inline_kb, reply_to_message_id=m.message_id, parse_mode='HTML')
+    send_text(bot, m, text, inline_kb, reply_to_message_id=m.message_id, parse_mode='HTML',
+              disable_web_page_preview=True)
 
 
 def choose_btn(m, user, bot, session, *args, **kwargs):
@@ -301,15 +360,18 @@ def choose_btn(m, user, bot, session, *args, **kwargs):
 
 
 def ask_btns(m, user, bot, session, *args, **kwargs):
-    from constants import attachable_buttons
+    from constants import attachable_buttons, attachable_links, get_attachable_link
 
     callback_data, back = kwargs['callback_data'], kwargs['back']
     text = Phrase.ASK_BTNS
 
-    chars = 'АБВГДЕЁЖЗИЙКЛМНОПРСТУФХЦЧШЩЪЫЬЭЮЯ1234567890 '
+    messenger = get_messenger_from_kwargs(kwargs)
 
-    list_inline_btn = [('❌ ' + (''.join(filter((lambda c: c.upper() in chars), b[0]))).strip(), 'chbtn_0_' + b[1]) for b
-                       in attachable_buttons]
+    list_inline_btn = [('❌ ' + _clean_btn_text(b[0]), 'chbtn_0_' + b[1]) for b in attachable_buttons]
+    for key in attachable_links:
+        link = get_attachable_link(key, messenger)
+        if link:
+            list_inline_btn.append(('❌ ' + _clean_btn_text(link[0]), f'chbtn_0_{LINK_PREFIX}_{key}'))
     list_inline_btn.append(('✅ Готово', callback_data))
     inline_buttons = [types.InlineKeyboardButton(t[0], callback_data=t[1]) for t in list_inline_btn]
     inline_kb = types.InlineKeyboardMarkup(row_width=1).add(*inline_buttons)
@@ -415,7 +477,7 @@ def confirmation_message(m, user, bot, session, *args, **kwargs):
     # Подтверждение отправки пользователю сообщения
     user_id, message_id = m.data.split('$')[0].split('_')[1:3]
 
-    btns = get_attachable_buttons(m.message)
+    btns = get_attachable_buttons(m.message, get_messenger_from_kwargs(kwargs))
     text = Phrase.CONFIRMATION_OF_SEND_MESSAGE_TO_USER.format(u_id=f'<code>{user_id}</code>')
     list_inline_btn = btns
 
@@ -431,8 +493,7 @@ def confirmation_message(m, user, bot, session, *args, **kwargs):
         ('Начать заново', 'wuser$sdel'),
         ('🏠 В меню', 'menu$sdel')
     ]
-    inline_buttons = [types.InlineKeyboardButton(t[0], callback_data=t[1]) for t in list_inline_btn]
-    inline_kb = types.InlineKeyboardMarkup(row_width=1).add(*inline_buttons)
+    inline_kb = create_inline_kb(list_inline_btn, row_width=1)
 
     send_text(bot, m, text, inline_kb, reply_to_message_id=unpack_id(message_id), parse_mode='HTML')
 

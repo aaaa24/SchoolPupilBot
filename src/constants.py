@@ -61,6 +61,7 @@ class Phrase:
     ASK_MESSAGE_TO_USERS = 'Пришлите сообщение, которое хотите разослать всем пользователям или всем администраторам'
     ASK_BTNS = 'Выберите кнопки, которые желаете прикрепить к сообщению, и нажмите «Готово»'
     YES_ADD_BTN = 'Кнопка {text} добавлена в список'
+    ATTACHED_LINKS = '\n\nСсылки:\n{text}'
     NO_ADD_BTN = 'Не удалось добавить кнопку в список'
     CONFIRMATION_MESSAGE_TO_USERS = 'Сделать рассылку этим сообщением?{text}'
     START_MAILING = 'Выполняется рассылка. Отправлено сообщений: {text}'
@@ -111,7 +112,23 @@ attachable_buttons = [
     ('✅ Подписаться на новости', 'news_on'), ('❌ Отписаться от новостей', 'news_off'),
     ('Изменения на другой день', 'dchtt'),
     ('🔔 Расписание звонков', 'callsch'), ('🏖 Расписание каникул', 'hol'),
+    ('🔔 Подписка на изменения', 'subchtt'),
+    ('✅ Подписаться на изменения', 'subchtt_on'), ('❌ Отписаться от изменений', 'subchtt_off'),
+    ('🔎 Найти учителя', 'infofindtea'), ('🔎 Найти расписание учителя', 'ttfindtea'),
+    ('🖼 Расписание учителей в фотографиях', 'ftttea'),
 ]
+
+attachable_links = ['bot']
+
+
+def get_attachable_link(key, messenger):
+    if key == 'bot':
+        other = messenger.other
+        url = other.bot_url(f'from{messenger.nice_name}')
+        if url:
+            return f'🤖 Бот в {other.nice_name}', url
+    return None
+
 
 days = [
     {'name': 'позавчера', 'num': -2},
