@@ -17,6 +17,7 @@ ExecStart=/opt/schoolpupilbot/%i/venv/bin/python /opt/schoolpupilbot/%i/server/b
     --chdir /opt/schoolpupilbot/%i/server \
     --bind 127.0.0.1:${PORT} \
     --workers ${WORKERS} --worker-class gthread --threads 4 \
+    --no-control-socket \
     --timeout 120 --graceful-timeout 30 \
     --access-logfile - --error-logfile - \
     app:app

@@ -20,13 +20,13 @@ def main():
         raise SystemExit('Использование: bootstrap.py <команда> [аргументы]')
 
     secret_id = os.getenv('LOCKBOX_SECRET_ID')
-    if not secret_id:
-        raise SystemExit('Не задана переменная окружения LOCKBOX_SECRET_ID')
-
-    secrets = load_secrets(secret_id)
-    for key, value in secrets.items():
-        os.environ.setdefault(key, value)
-    print(f'Из Lockbox получено значений: {len(secrets)}', file=sys.stderr)
+    if secret_id:
+        secrets = load_secrets(secret_id)
+        for key, value in secrets.items():
+            os.environ.setdefault(key, value)
+        print(f'Из Lockbox получено значений: {len(secrets)}', file=sys.stderr)
+    else:
+        print('LOCKBOX_SECRET_ID не задан, использовать переменные окружения', file=sys.stderr)
 
     os.execvp(sys.argv[1], sys.argv[1:])
 
